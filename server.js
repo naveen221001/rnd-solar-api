@@ -9,12 +9,21 @@ const PORT = process.env.PORT || 3001;
 
 // Enable CORS for your Netlify domain
 app.use(cors({
-  origin: '*' // In production, change to your specific Netlify URL
+  origin: '*', // In production, change to your specific Netlify URL
+  methods: ['GET', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
 }));
+
+// Disable response caching
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
 
 // Helper function to safely parse dates from Excel
 function parseExcelDate(dateValue) {
-  // Your existing parseExcelDate function is excellent - keeping it as is
   if (dateValue == null) return null;
   if (dateValue instanceof Date) return dateValue;
   
@@ -39,7 +48,6 @@ function parseExcelDate(dateValue) {
 
 // Define standard test durations manually as a backup
 const HARDCODED_STD_DURATIONS = {
-  // Your existing durations - keeping them as is
   'ADHESION - PCT - ADHESION': 6,
   'GEL TEST': 2,
   'TENSILE TEST': 2,
@@ -57,48 +65,88 @@ const HARDCODED_STD_DURATIONS = {
   'PEEL STRENGTH': 2
 };
 
-// Add a file check function to verify Excel file exists
-function checkExcelFileExists() {
+// Improved file check function to provide more details
+function checkExcelFile() {
   const excelFilePath = path.join(__dirname, 'data', 'Solar_Lab_Tests.xlsx');
   const exists = fs.existsSync(excelFilePath);
   
-  if (!exists) {
-    console.warn(`Excel file not found at ${excelFilePath}`);
+  let fileInfo = {
+    exists,
+    path: excelFilePath,
+    size: null,
+    lastModified: null,
+    lastChecked: new Date().toISOString()
+  };
+  
+  if (exists) {
+    try {
+      const stats = fs.statSync(excelFilePath);
+      fileInfo.size = stats.size;
+      fileInfo.lastModified = stats.mtime;
+      console.log(`Excel file found at ${excelFilePath}, size: ${stats.size} bytes, last modified: ${stats.mtime}`);
+    } catch (error) {
+      console.error(`Error getting file stats: ${error.message}`);
+    }
   } else {
-    console.log(`Excel file found at ${excelFilePath}`);
+    console.warn(`Excel file not found at ${excelFilePath}`);
   }
   
-  return {
-    exists,
-    path: excelFilePath
-  };
+  return fileInfo;
 }
 
-// API endpoints (your existing endpoints)
+// API endpoint for test data
 app.get('/api/test-data', (req, res) => {
   try {
-    console.log('API request received for /api/test-data');
+    console.log(`API request received for /api/test-data at ${new Date().toISOString()}`);
+    
+    // Add request info to response for debugging
+    const requestInfo = {
+      timestamp: new Date().toISOString(),
+      query: req.query,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'cache-control': req.headers['cache-control']
+      }
+    };
     
     // Check if the Excel file exists
-    const fileCheck = checkExcelFileExists();
-    if (!fileCheck.exists) {
+    const fileInfo = checkExcelFile();
+    if (!fileInfo.exists) {
       return res.status(404).json({ 
         error: 'Excel file not found',
         message: 'The Excel file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
-        path: fileCheck.path
+        fileInfo,
+        requestInfo
       });
     }
     
-    // Rest of your existing code...
-    const excelFilePath = fileCheck.path;
-    const workbook = xlsx.readFile(excelFilePath, {
-      cellDates: true,
-      dateNF: 'yyyy-mm-dd',
-      cellNF: true,
-      cellStyles: true
-    });
+    // Read the Excel file with force reload
+    const excelFilePath = fileInfo.path;
     
-    // Your existing processing logic...
+    // Use try/catch specifically for file reading
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        // Set type to 'binary' for better handling of large files
+        type: 'binary',
+        // Force a reload of the file
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Log available sheets
     console.log('Available sheets in workbook:', workbook.SheetNames);
     
     // Read the "Test Data" sheet
@@ -108,7 +156,9 @@ app.get('/api/test-data', (req, res) => {
       console.error(`Sheet "${testDataSheetName}" not found. Available sheets:`, workbook.SheetNames);
       return res.status(404).json({ 
         error: `${testDataSheetName} sheet not found in Excel file`,
-        availableSheets: workbook.SheetNames
+        availableSheets: workbook.SheetNames,
+        fileInfo,
+        requestInfo
       });
     }
     
@@ -161,7 +211,6 @@ app.get('/api/test-data', (req, res) => {
     
     // Process the data to match the dashboard's expected format
     const processedData = rawData.map((row, index) => {
-      // Your existing data processing code...
       const grnTimeValue = row['GRN GENERATION TIME'];
       const testStartValue = row['TEST START DATE AND TIME'];
       const testEndValue = row['TEST END DATE AND TIME'];
@@ -209,50 +258,68 @@ app.get('/api/test-data', (req, res) => {
       };
     });
     
-    if (processedData.length > 0) {
-      // Your existing debugging code...
-      const adhesionTests = processedData.filter(item => item.test === 'ADHESION - PCT - ADHESION');
-      if (adhesionTests.length > 0) {
-        console.log('ADHESION - PCT - ADHESION tests:', adhesionTests.map(t => ({ 
-          id: t.id, 
-          standardDuration: t.standardDuration 
-        })));
+    // Add excel metadata to response
+    const responseData = {
+      data: processedData,
+      metadata: {
+        totalRows: processedData.length,
+        fileInfo: fileInfo,
+        requestInfo: requestInfo,
+        generatedAt: new Date().toISOString()
       }
-      
-      console.log('Sample of processed data:', processedData.slice(0, 3));
-    }
+    };
     
-    res.json(processedData);
+    res.json(responseData);
   } catch (error) {
-    console.error('Error reading Excel file:', error);
+    console.error('Error processing request:', error);
     res.status(500).json({ 
-      error: 'Failed to read Excel data', 
+      error: 'Failed to process request', 
       details: error.message,
       stack: error.stack 
     });
   }
 });
 
-// Your existing metadata endpoint
+// Fix for the api/solar-data endpoint
+app.get('/api/solar-data', (req, res) => {
+  console.log('Received request to /api/solar-data, redirecting to /api/test-data');
+  // This redirects api/solar-data requests to api/test-data
+  req.url = '/api/test-data';
+  app.handle(req, res);
+});
+
+// Metadata endpoint with improved error handling
 app.get('/api/metadata', (req, res) => {
   try {
-    console.log('API request received for /api/metadata');
+    console.log(`API request received for /api/metadata at ${new Date().toISOString()}`);
     
     // Check if the Excel file exists
-    const fileCheck = checkExcelFileExists();
-    if (!fileCheck.exists) {
+    const fileInfo = checkExcelFile();
+    if (!fileInfo.exists) {
       return res.status(404).json({ 
         error: 'Excel file not found',
         message: 'The Excel file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
-        path: fileCheck.path
+        fileInfo
       });
     }
     
-    // Rest of your existing code...
-    const excelFilePath = fileCheck.path;
-    const workbook = xlsx.readFile(excelFilePath, {
-      cellDates: true
-    });
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file for metadata:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message,
+        fileInfo
+      });
+    }
     
     // Read the Material Tests Map sheet
     const materialTestsSheetName = 'Material Tests Map';
@@ -308,7 +375,11 @@ app.get('/api/metadata', (req, res) => {
     const result = {
       bomTests: bomTests,
       uniqueBoms: Array.from(uniqueBoms),
-      uniqueTests: Array.from(uniqueTests)
+      uniqueTests: Array.from(uniqueTests),
+      metadata: {
+        fileInfo: fileInfo,
+        generatedAt: new Date().toISOString()
+      }
     };
     
     res.json(result);
@@ -321,27 +392,39 @@ app.get('/api/metadata', (req, res) => {
   }
 });
 
-// Add a new endpoint to check the Excel file status
+// Enhanced file status endpoint
 app.get('/api/data-status', (req, res) => {
   try {
-    const fileCheck = checkExcelFileExists();
+    const fileInfo = checkExcelFile();
     
-    if (!fileCheck.exists) {
+    if (!fileInfo.exists) {
       return res.status(404).json({
         success: false,
         message: 'Excel file not found',
-        path: fileCheck.path
+        fileInfo
       });
     }
     
-    const stats = fs.statSync(fileCheck.path);
+    // Try to get workbook info without full parse
+    let sheetNames = [];
+    try {
+      const workbook = xlsx.readFile(fileInfo.path, { 
+        bookSheets: true, // Only read sheet names
+        cache: false
+      });
+      sheetNames = workbook.SheetNames || [];
+    } catch (e) {
+      console.error('Error reading sheet names:', e);
+    }
     
     res.json({
       success: true,
-      lastUpdated: stats.mtime,
-      fileSize: stats.size,
-      fileName: 'Solar_Lab_Tests.xlsx',
-      path: fileCheck.path
+      lastUpdated: fileInfo.lastModified,
+      fileSize: fileInfo.size,
+      fileName: path.basename(fileInfo.path),
+      path: fileInfo.path,
+      sheets: sheetNames,
+      serverTime: new Date().toISOString()
     });
   } catch (error) {
     console.error('Error checking file status:', error);
@@ -353,34 +436,103 @@ app.get('/api/data-status', (req, res) => {
   }
 });
 
-// Your existing debug endpoint
-app.get('/api/debug/excel', (req, res) => {
+// New file info endpoint
+app.get('/api/file-info', (req, res) => {
   try {
-    const fileCheck = checkExcelFileExists();
-    if (!fileCheck.exists) {
-      return res.status(404).json({ error: 'Excel file not found' });
+    const fileInfo = checkExcelFile();
+    
+    // Try to get more detailed info if file exists
+    if (fileInfo.exists) {
+      try {
+        // Read the file as binary to get a hash
+        const buffer = fs.readFileSync(fileInfo.path);
+        const hash = require('crypto')
+          .createHash('md5')
+          .update(buffer)
+          .digest('hex');
+        
+        fileInfo.md5 = hash;
+        fileInfo.contentSample = buffer.slice(0, 100).toString('hex');
+      } catch (e) {
+        console.error('Error getting file hash:', e);
+      }
     }
     
-    const workbook = xlsx.readFile(fileCheck.path, { cellDates: true });
+    res.json({
+      fileInfo,
+      serverInfo: {
+        time: new Date().toISOString(),
+        pid: process.pid,
+        platform: process.platform,
+        nodeVersion: process.version,
+        memoryUsage: process.memoryUsage()
+      }
+    });
+  } catch (error) {
+    console.error('Error getting file info:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting file info',
+      error: error.message
+    });
+  }
+});
+
+// Debug endpoint with improved error handling
+app.get('/api/debug/excel', (req, res) => {
+  try {
+    const fileInfo = checkExcelFile();
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        fileInfo 
+      });
+    }
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(fileInfo.path, { 
+        cellDates: true,
+        cache: false 
+      });
+    } catch (readError) {
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message,
+        fileInfo
+      });
+    }
     
     // Get information about each sheet
     const sheetsInfo = {};
     workbook.SheetNames.forEach(name => {
-      const sheet = workbook.Sheets[name];
-      const range = xlsx.utils.decode_range(sheet['!ref'] || 'A1:A1');
-      const sampleData = xlsx.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: null }).slice(0, 2);
-      
-      sheetsInfo[name] = {
-        rowCount: range.e.r - range.s.r + 1,
-        columnCount: range.e.c - range.s.c + 1,
-        columnNames: sampleData[0] || [],
-        sampleRow: sampleData[1] || []
-      };
+      try {
+        const sheet = workbook.Sheets[name];
+        const range = xlsx.utils.decode_range(sheet['!ref'] || 'A1:A1');
+        const sampleData = xlsx.utils.sheet_to_json(sheet, { 
+          header: 1, 
+          range: 0, 
+          defval: null 
+        }).slice(0, 2);
+        
+        sheetsInfo[name] = {
+          rowCount: range.e.r - range.s.r + 1,
+          columnCount: range.e.c - range.s.c + 1,
+          columnNames: sampleData[0] || [],
+          sampleRow: sampleData[1] || []
+        };
+      } catch (sheetError) {
+        sheetsInfo[name] = {
+          error: `Error reading sheet: ${sheetError.message}`
+        };
+      }
     });
     
     res.json({
-      fileName: 'Solar_Lab_Tests.xlsx',
-      sheets: sheetsInfo
+      fileName: path.basename(fileInfo.path),
+      fileInfo: fileInfo,
+      sheets: sheetsInfo,
+      serverTime: new Date().toISOString()
     });
     
   } catch (error) {
@@ -391,34 +543,32 @@ app.get('/api/debug/excel', (req, res) => {
   }
 });
 
-// Your existing health check endpoint
+// Enhanced health check endpoint
 app.get('/health', (req, res) => {
-  // Add Excel file status to health check
-  const fileCheck = checkExcelFileExists();
+  const fileInfo = checkExcelFile();
   
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    excelFile: {
-      exists: fileCheck.exists,
-      path: fileCheck.path,
-      lastUpdated: fileCheck.exists ? fs.statSync(fileCheck.path).mtime : null
-    }
+    uptime: process.uptime(),
+    excelFile: fileInfo,
+    memory: process.memoryUsage()
   });
 });
 
-// Start the server
+// Start the server with more debug info
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT} at ${new Date().toISOString()}`);
   console.log(`API available at http://localhost:${PORT}/api/test-data`);
   console.log(`Excel debug endpoint available at http://localhost:${PORT}/api/debug/excel`);
+  console.log(`File info endpoint available at http://localhost:${PORT}/api/file-info`);
   
   // Check Excel file on startup
-  const fileCheck = checkExcelFileExists();
-  if (fileCheck.exists) {
-    console.log(`Excel file is ready at ${fileCheck.path}`);
+  const fileInfo = checkExcelFile();
+  if (fileInfo.exists) {
+    console.log(`Excel file is ready at ${fileInfo.path}, size: ${fileInfo.size} bytes`);
   } else {
-    console.log(`Waiting for Excel file to be synced to ${fileCheck.path}`);
+    console.log(`Waiting for Excel file to be synced to ${fileInfo.path}`);
   }
 });
 
