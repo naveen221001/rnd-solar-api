@@ -3,7 +3,7 @@ name: Sync Excel Files from OneDrive
 on:
   schedule:
     # Run every 6 hours
-    - cron: '0 */6 * * *'
+    - cron: '*/1 * * * *'
   
   # Allow manual trigger
   workflow_dispatch:
