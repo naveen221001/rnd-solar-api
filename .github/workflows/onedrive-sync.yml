@@ -3,7 +3,7 @@ name: Sync Excel Files from OneDrive
 on:
   schedule:
     # Run every 6 hours
-    - cron: '*/1 * * * *'
+    - cron: '0 */6 * * *'
   
   # Allow manual trigger
   workflow_dispatch:
@@ -11,6 +11,8 @@ on:
 jobs:
   sync-excel-files:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
       - name: Checkout repository
@@ -24,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests onedrivedownloader
+          pip install requests onedrivedownloader hashlib
 
       - name: Create data directory
         run: mkdir -p data
@@ -37,11 +39,15 @@ jobs:
           LINE_TRIALS_URL: ${{ secrets.LINE_TRIALS_URL }}
           CERTIFICATIONS_URL: ${{ secrets.CERTIFICATIONS_URL }}
       
-      - name: Check for changes
+      - name: Force file differences check
         id: git-check
         run: |
-          git status
-          git diff --quiet data/ || echo "changes=true" >> $GITHUB_OUTPUT
+          if [ -f "data/.files_changed" ]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "Files have changed according to our comparison"
+          else
+            git diff --quiet data/ || echo "changes=true" >> $GITHUB_OUTPUT
+          fi
       
       - name: Commit and push if there are changes
         if: steps.git-check.outputs.changes == 'true'
