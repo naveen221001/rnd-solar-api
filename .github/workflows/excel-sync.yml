@@ -1,0 +1,50 @@
+name: Sync Excel from OneDrive
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Runs every 15 minutes
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  sync-excel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}  # Use PAT for checkout
+
+      - name: Create data directory
+        run: mkdir -p data
+        
+      - name: Download Excel file
+        run: |
+          echo "Downloading Excel file from OneDrive..."
+          curl -L "${{ secrets.ONEDRIVE_DOWNLOAD_URL }}" -o data/Solar_Lab_Tests.xlsx
+          if [ $? -eq 0 ]; then
+            echo "Download successful!"
+            ls -la data/
+          else
+            echo "Download failed with error code: $?"
+            exit 1
+          fi
+      
+      - name: Check if file changed
+        id: check_changes
+        run: |
+          if git diff --quiet data/Solar_Lab_Tests.xlsx; then
+            echo "No changes detected in Excel file."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in Excel file."
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Commit and push if changed
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add data/Solar_Lab_Tests.xlsx
+          git commit -m "Auto-update Excel data from OneDrive [skip ci]"
+          git push
