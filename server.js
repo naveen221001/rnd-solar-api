@@ -7,36 +7,29 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Enable CORS for your Netlify domain - replace with your actual Netlify URL
+// Enable CORS for your Netlify domain
 app.use(cors({
   origin: '*' // In production, change to your specific Netlify URL
 }));
 
 // Helper function to safely parse dates from Excel
 function parseExcelDate(dateValue) {
-  // If the value is null or undefined, return null
+  // Your existing parseExcelDate function is excellent - keeping it as is
   if (dateValue == null) return null;
-  
-  // If it's already a Date object, return it
   if (dateValue instanceof Date) return dateValue;
   
   try {
-    // If it's a number, it's likely an Excel serial date
     if (typeof dateValue === 'number') {
-      // Excel date serial numbers start from January 1, 1900
-      // Need to adjust by the Excel leap year bug
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
       const millisecondsPerDay = 24 * 60 * 60 * 1000;
       return new Date(excelEpoch.getTime() + dateValue * millisecondsPerDay);
     }
     
-    // If it's a string in the format DD/MM/YYYY, convert to YYYY-MM-DD for parsing
     if (typeof dateValue === 'string' && dateValue.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
       const [day, month, year] = dateValue.split('/');
       return new Date(Date.UTC(year, month - 1, day));
     }
     
-    // Otherwise try to parse as a regular date string
     return new Date(String(dateValue));
   } catch (e) {
     console.error('Error parsing date:', dateValue, e);
@@ -45,8 +38,8 @@ function parseExcelDate(dateValue) {
 }
 
 // Define standard test durations manually as a backup
-// This ensures we have the correct values even if the Excel sheet doesn't load properly
 const HARDCODED_STD_DURATIONS = {
+  // Your existing durations - keeping them as is
   'ADHESION - PCT - ADHESION': 6,
   'GEL TEST': 2,
   'TENSILE TEST': 2,
@@ -64,29 +57,48 @@ const HARDCODED_STD_DURATIONS = {
   'PEEL STRENGTH': 2
 };
 
-// API endpoint to read Excel data
+// Add a file check function to verify Excel file exists
+function checkExcelFileExists() {
+  const excelFilePath = path.join(__dirname, 'data', 'Solar_Lab_Tests.xlsx');
+  const exists = fs.existsSync(excelFilePath);
+  
+  if (!exists) {
+    console.warn(`Excel file not found at ${excelFilePath}`);
+  } else {
+    console.log(`Excel file found at ${excelFilePath}`);
+  }
+  
+  return {
+    exists,
+    path: excelFilePath
+  };
+}
+
+// API endpoints (your existing endpoints)
 app.get('/api/test-data', (req, res) => {
   try {
     console.log('API request received for /api/test-data');
     
-    // Path to your Excel file
-    const excelFilePath = path.join(__dirname, 'data', 'Solar_Lab_Tests.xlsx');
-    
-    // Check if file exists
-    if (!fs.existsSync(excelFilePath)) {
-      console.error('Excel file not found at path:', excelFilePath);
-      return res.status(404).json({ error: 'Excel file not found' });
+    // Check if the Excel file exists
+    const fileCheck = checkExcelFileExists();
+    if (!fileCheck.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        path: fileCheck.path
+      });
     }
     
-    // Read the Excel file with options for better date handling
+    // Rest of your existing code...
+    const excelFilePath = fileCheck.path;
     const workbook = xlsx.readFile(excelFilePath, {
-      cellDates: true,  // This option tells xlsx to parse dates
-      dateNF: 'yyyy-mm-dd',  // Date format
-      cellNF: true,     // Keep number formats
-      cellStyles: true  // Keep cell styles
+      cellDates: true,
+      dateNF: 'yyyy-mm-dd',
+      cellNF: true,
+      cellStyles: true
     });
     
-    // Log available sheets for debugging
+    // Your existing processing logic...
     console.log('Available sheets in workbook:', workbook.SheetNames);
     
     // Read the "Test Data" sheet
@@ -149,17 +161,15 @@ app.get('/api/test-data', (req, res) => {
     
     // Process the data to match the dashboard's expected format
     const processedData = rawData.map((row, index) => {
-      // Get column names based on your Excel sheet (case sensitive)
+      // Your existing data processing code...
       const grnTimeValue = row['GRN GENERATION TIME'];
       const testStartValue = row['TEST START DATE AND TIME'];
       const testEndValue = row['TEST END DATE AND TIME'];
       
-      // Parse dates from Excel format to JavaScript Date objects
       const grnTime = parseExcelDate(grnTimeValue);
       const startTime = parseExcelDate(testStartValue);
       const endTime = parseExcelDate(testEndValue);
       
-      // Debug first few rows
       if (index < 5) {
         console.log(`Row ${index + 1}:`, {
           testName: row['TEST NAME'],
@@ -169,18 +179,15 @@ app.get('/api/test-data', (req, res) => {
         });
       }
       
-      // Calculate actual test duration in days
       let actualDuration = 0;
       if (startTime && endTime) {
         const diffTime = Math.abs(endTime - startTime);
-        actualDuration = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24))); // Minimum 1 day
+        actualDuration = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
       }
       
-      // Get standard duration for this test (with exact name matching)
       const testName = row['TEST NAME'] || '';
       const standardDuration = standardDurations[testName] || DEFAULT_STD_DURATION;
       
-      // Calculate efficiency (standard/actual * 100)
       let efficiency = null;
       if (actualDuration > 0 && standardDuration > 0) {
         efficiency = Math.round((standardDuration / actualDuration) * 100);
@@ -202,9 +209,8 @@ app.get('/api/test-data', (req, res) => {
       };
     });
     
-    // Debug: Show sample of processed data
     if (processedData.length > 0) {
-      // Check specific test durations
+      // Your existing debugging code...
       const adhesionTests = processedData.filter(item => item.test === 'ADHESION - PCT - ADHESION');
       if (adhesionTests.length > 0) {
         console.log('ADHESION - PCT - ADHESION tests:', adhesionTests.map(t => ({ 
@@ -227,15 +233,23 @@ app.get('/api/test-data', (req, res) => {
   }
 });
 
-// API endpoint to get all unique BOMs and tests
+// Your existing metadata endpoint
 app.get('/api/metadata', (req, res) => {
   try {
     console.log('API request received for /api/metadata');
     
-    // Path to your Excel file
-    const excelFilePath = path.join(__dirname, 'data', 'Solar_Lab_Tests.xlsx');
+    // Check if the Excel file exists
+    const fileCheck = checkExcelFileExists();
+    if (!fileCheck.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        path: fileCheck.path
+      });
+    }
     
-    // Read the Excel file
+    // Rest of your existing code...
+    const excelFilePath = fileCheck.path;
     const workbook = xlsx.readFile(excelFilePath, {
       cellDates: true
     });
@@ -307,15 +321,47 @@ app.get('/api/metadata', (req, res) => {
   }
 });
 
-// Add a debug endpoint to see Excel structure
+// Add a new endpoint to check the Excel file status
+app.get('/api/data-status', (req, res) => {
+  try {
+    const fileCheck = checkExcelFileExists();
+    
+    if (!fileCheck.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Excel file not found',
+        path: fileCheck.path
+      });
+    }
+    
+    const stats = fs.statSync(fileCheck.path);
+    
+    res.json({
+      success: true,
+      lastUpdated: stats.mtime,
+      fileSize: stats.size,
+      fileName: 'Solar_Lab_Tests.xlsx',
+      path: fileCheck.path
+    });
+  } catch (error) {
+    console.error('Error checking file status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking file status',
+      error: error.message
+    });
+  }
+});
+
+// Your existing debug endpoint
 app.get('/api/debug/excel', (req, res) => {
   try {
-    const excelFilePath = path.join(__dirname, 'data', 'Solar_Lab_Tests.xlsx');
-    if (!fs.existsSync(excelFilePath)) {
+    const fileCheck = checkExcelFileExists();
+    if (!fileCheck.exists) {
       return res.status(404).json({ error: 'Excel file not found' });
     }
     
-    const workbook = xlsx.readFile(excelFilePath, { cellDates: true });
+    const workbook = xlsx.readFile(fileCheck.path, { cellDates: true });
     
     // Get information about each sheet
     const sheetsInfo = {};
@@ -345,9 +391,20 @@ app.get('/api/debug/excel', (req, res) => {
   }
 });
 
-// Add a health check endpoint
+// Your existing health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  // Add Excel file status to health check
+  const fileCheck = checkExcelFileExists();
+  
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    excelFile: {
+      exists: fileCheck.exists,
+      path: fileCheck.path,
+      lastUpdated: fileCheck.exists ? fs.statSync(fileCheck.path).mtime : null
+    }
+  });
 });
 
 // Start the server
@@ -355,6 +412,14 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api/test-data`);
   console.log(`Excel debug endpoint available at http://localhost:${PORT}/api/debug/excel`);
+  
+  // Check Excel file on startup
+  const fileCheck = checkExcelFileExists();
+  if (fileCheck.exists) {
+    console.log(`Excel file is ready at ${fileCheck.path}`);
+  } else {
+    console.log(`Waiting for Excel file to be synced to ${fileCheck.path}`);
+  }
 });
 
 // Handle graceful shutdown
