@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 
 // Enable CORS for your Netlify domain
 app.use(cors({
-  origin: '*', // In production, change to your specific Netlify URL
+  origin: process.env.NODE_ENV === 'production' ? 'https://your-netlify-domain.netlify.app' : '*',
   methods: ['GET', 'OPTIONS'],
   allowedHeaders: ['Content-Type']
 }));
@@ -66,8 +66,8 @@ const HARDCODED_STD_DURATIONS = {
 };
 
 // Improved file check function to provide more details
-function checkExcelFile() {
-  const excelFilePath = path.join(__dirname, 'data', 'Solar_Lab_Tests.xlsx');
+function checkExcelFile(filename) {
+  const excelFilePath = path.join(__dirname, 'data', filename);
   const exists = fs.existsSync(excelFilePath);
   
   let fileInfo = {
@@ -110,7 +110,7 @@ app.get('/api/test-data', (req, res) => {
     };
     
     // Check if the Excel file exists
-    const fileInfo = checkExcelFile();
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
     if (!fileInfo.exists) {
       return res.status(404).json({ 
         error: 'Excel file not found',
@@ -258,22 +258,269 @@ app.get('/api/test-data', (req, res) => {
       };
     });
     
-    // Add excel metadata to response
-    const responseData = {
-      data: processedData,
-      metadata: {
-        totalRows: processedData.length,
-        fileInfo: fileInfo,
-        requestInfo: requestInfo,
-        generatedAt: new Date().toISOString()
-      }
-    };
-    
     res.json(processedData);
   } catch (error) {
     console.error('Error processing request:', error);
     res.status(500).json({ 
       error: 'Failed to process request', 
+      details: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
+// API endpoint for line trials data
+app.get('/api/line-trials', (req, res) => {
+  try {
+    console.log(`API request received for /api/line-trials at ${new Date().toISOString()}`);
+    
+    // Add request info to response for debugging
+    const requestInfo = {
+      timestamp: new Date().toISOString(),
+      query: req.query,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'cache-control': req.headers['cache-control']
+      }
+    };
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Line_Trials.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Line Trials Excel file not found',
+        message: 'The Line Trials file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Read the Excel file with force reload
+    const excelFilePath = fileInfo.path;
+    
+    // Use try/catch specifically for file reading
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Line Trials Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Line Trials Excel file',
+        details: readError.message,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Log available sheets
+    console.log('Available sheets in Line Trials workbook:', workbook.SheetNames);
+    
+    // Assuming the main sheet is the first one or named "Line Trials"
+    const sheetName = workbook.SheetNames[0]; // First sheet or specify the exact name
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) {
+      console.error(`Sheet not found. Available sheets:`, workbook.SheetNames);
+      return res.status(404).json({ 
+        error: `Sheet not found in Line Trials Excel file`,
+        availableSheets: workbook.SheetNames,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Convert to JSON
+    const lineTrialsData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${lineTrialsData.length} rows from Line Trials sheet`);
+    
+    // Process the data as needed for your frontend
+    const processedData = lineTrialsData.map((row, index) => {
+      // Assuming your Excel has columns: vendor, material, status, remarks
+      return {
+        id: index + 1,
+        vendor: row['VENDOR'] || '',
+        material: row['MATERIAL'] || '',
+        status: row['STATUS'] || '',
+        remarks: row['REMARKS'] || ''
+      };
+    });
+    
+    res.json(processedData);
+  } catch (error) {
+    console.error('Error processing Line Trials request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process Line Trials request', 
+      details: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
+// API endpoint for certifications data
+app.get('/api/certifications', (req, res) => {
+  try {
+    console.log(`API request received for /api/certifications at ${new Date().toISOString()}`);
+    
+    // Add request info to response for debugging
+    const requestInfo = {
+      timestamp: new Date().toISOString(),
+      query: req.query,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'cache-control': req.headers['cache-control']
+      }
+    };
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Certifications.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Certifications Excel file not found',
+        message: 'The Certifications file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Read the Excel file with force reload
+    const excelFilePath = fileInfo.path;
+    
+    // Use try/catch specifically for file reading
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Certifications Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Certifications Excel file',
+        details: readError.message,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Log available sheets
+    console.log('Available sheets in Certifications workbook:', workbook.SheetNames);
+    
+    // We expect multiple sheets for different certification statuses
+    const certSheets = {
+      completed: workbook.SheetNames.find(name => name.toLowerCase().includes('completed')) || workbook.SheetNames[0],
+      inProcess: workbook.SheetNames.find(name => name.toLowerCase().includes('process') || name.toLowerCase().includes('progress')) || workbook.SheetNames[1],
+      pending: workbook.SheetNames.find(name => name.toLowerCase().includes('pending')) || workbook.SheetNames[2]
+    };
+    
+    // Process each sheet for certification data
+    const certificationData = [];
+    const certificationDetails = {
+      completed: [],
+      inProcess: [],
+      pending: []
+    };
+    
+    // Process all sheets to extract certification data
+    for (const [status, sheetName] of Object.entries(certSheets)) {
+      if (!sheetName || !workbook.Sheets[sheetName]) continue;
+      
+      const worksheet = workbook.Sheets[sheetName];
+      const data = xlsx.utils.sheet_to_json(worksheet);
+      console.log(`Processed ${data.length} rows from ${sheetName} sheet`);
+      
+      // Extract certification details
+      data.forEach(row => {
+        if (status === 'completed') {
+          certificationDetails.completed.push({
+            product: row['PRODUCT'] || '',
+            certName: row['CERTIFICATION'] || '',
+            date: row['DATE'] || '',
+            agency: row['AGENCY'] || ''
+          });
+        } else if (status === 'inProcess') {
+          certificationDetails.inProcess.push({
+            product: row['PRODUCT'] || '',
+            certName: row['CERTIFICATION'] || '',
+            startDate: row['START DATE'] || '',
+            expected: row['EXPECTED COMPLETION'] || '',
+            agency: row['AGENCY'] || ''
+          });
+        } else if (status === 'pending') {
+          certificationDetails.pending.push({
+            product: row['PRODUCT'] || '',
+            certName: row['CERTIFICATION'] || '',
+            plannedStart: row['PLANNED START'] || '',
+            agency: row['AGENCY'] || ''
+          });
+        }
+      });
+    }
+    
+    // Summarize certification data by product
+    const productSummary = {};
+    
+    // Process completed certifications
+    certificationDetails.completed.forEach(cert => {
+      if (!productSummary[cert.product]) {
+        productSummary[cert.product] = { 
+          product: cert.product, 
+          completed: 0, 
+          inProcess: 0, 
+          pending: 0 
+        };
+      }
+      productSummary[cert.product].completed++;
+    });
+    
+    // Process in-process certifications
+    certificationDetails.inProcess.forEach(cert => {
+      if (!productSummary[cert.product]) {
+        productSummary[cert.product] = { 
+          product: cert.product, 
+          completed: 0, 
+          inProcess: 0, 
+          pending: 0 
+        };
+      }
+      productSummary[cert.product].inProcess++;
+    });
+    
+    // Process pending certifications
+    certificationDetails.pending.forEach(cert => {
+      if (!productSummary[cert.product]) {
+        productSummary[cert.product] = { 
+          product: cert.product, 
+          completed: 0, 
+          inProcess: 0, 
+          pending: 0 
+        };
+      }
+      productSummary[cert.product].pending++;
+    });
+    
+    // Convert product summary to array
+    for (const product in productSummary) {
+      certificationData.push(productSummary[product]);
+    }
+    
+    res.json({
+      certificationData,
+      certificationDetails
+    });
+  } catch (error) {
+    console.error('Error processing Certifications request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process Certifications request', 
       details: error.message,
       stack: error.stack 
     });
@@ -294,7 +541,7 @@ app.get('/api/metadata', (req, res) => {
     console.log(`API request received for /api/metadata at ${new Date().toISOString()}`);
     
     // Check if the Excel file exists
-    const fileInfo = checkExcelFile();
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
     if (!fileInfo.exists) {
       return res.status(404).json({ 
         error: 'Excel file not found',
@@ -395,35 +642,86 @@ app.get('/api/metadata', (req, res) => {
 // Enhanced file status endpoint
 app.get('/api/data-status', (req, res) => {
   try {
-    const fileInfo = checkExcelFile();
+    // Check all Excel files
+    const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
+    const certificationsInfo = checkExcelFile('Certifications.xlsx');
     
-    if (!fileInfo.exists) {
+    if (!solarLabInfo.exists && !lineTrialsInfo.exists && !certificationsInfo.exists) {
       return res.status(404).json({
         success: false,
-        message: 'Excel file not found',
-        fileInfo
+        message: 'No Excel files found',
+        files: {
+          solarLabInfo,
+          lineTrialsInfo,
+          certificationsInfo
+        }
       });
     }
     
-    // Try to get workbook info without full parse
-    let sheetNames = [];
-    try {
-      const workbook = xlsx.readFile(fileInfo.path, { 
-        bookSheets: true, // Only read sheet names
-        cache: false
-      });
-      sheetNames = workbook.SheetNames || [];
-    } catch (e) {
-      console.error('Error reading sheet names:', e);
+    // Get sheet names from each file
+    const fileDetails = {};
+    
+    // Process Solar Lab Tests file
+    if (solarLabInfo.exists) {
+      try {
+        const workbook = xlsx.readFile(solarLabInfo.path, { 
+          bookSheets: true,
+          cache: false
+        });
+        fileDetails.solarLabTests = {
+          lastUpdated: solarLabInfo.lastModified,
+          fileSize: solarLabInfo.size,
+          sheets: workbook.SheetNames || []
+        };
+      } catch (e) {
+        fileDetails.solarLabTests = {
+          error: `Error reading sheet names: ${e.message}`
+        };
+      }
+    }
+    
+    // Process Line Trials file
+    if (lineTrialsInfo.exists) {
+      try {
+        const workbook = xlsx.readFile(lineTrialsInfo.path, { 
+          bookSheets: true,
+          cache: false
+        });
+        fileDetails.lineTrials = {
+          lastUpdated: lineTrialsInfo.lastModified,
+          fileSize: lineTrialsInfo.size,
+          sheets: workbook.SheetNames || []
+        };
+      } catch (e) {
+        fileDetails.lineTrials = {
+          error: `Error reading sheet names: ${e.message}`
+        };
+      }
+    }
+    
+    // Process Certifications file
+    if (certificationsInfo.exists) {
+      try {
+        const workbook = xlsx.readFile(certificationsInfo.path, { 
+          bookSheets: true,
+          cache: false
+        });
+        fileDetails.certifications = {
+          lastUpdated: certificationsInfo.lastModified,
+          fileSize: certificationsInfo.size,
+          sheets: workbook.SheetNames || []
+        };
+      } catch (e) {
+        fileDetails.certifications = {
+          error: `Error reading sheet names: ${e.message}`
+        };
+      }
     }
     
     res.json({
       success: true,
-      lastUpdated: fileInfo.lastModified,
-      fileSize: fileInfo.size,
-      fileName: path.basename(fileInfo.path),
-      path: fileInfo.path,
-      sheets: sheetNames,
+      files: fileDetails,
       serverTime: new Date().toISOString()
     });
   } catch (error) {
@@ -439,27 +737,39 @@ app.get('/api/data-status', (req, res) => {
 // New file info endpoint
 app.get('/api/file-info', (req, res) => {
   try {
-    const fileInfo = checkExcelFile();
+    // Check all Excel files
+    const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
+    const certificationsInfo = checkExcelFile('Certifications.xlsx');
     
-    // Try to get more detailed info if file exists
-    if (fileInfo.exists) {
-      try {
-        // Read the file as binary to get a hash
-        const buffer = fs.readFileSync(fileInfo.path);
-        const hash = require('crypto')
-          .createHash('md5')
-          .update(buffer)
-          .digest('hex');
-        
-        fileInfo.md5 = hash;
-        fileInfo.contentSample = buffer.slice(0, 100).toString('hex');
-      } catch (e) {
-        console.error('Error getting file hash:', e);
+    const fileInfos = {
+      solarLabTests: solarLabInfo,
+      lineTrials: lineTrialsInfo,
+      certifications: certificationsInfo
+    };
+    
+    // Try to get more detailed info for each file
+    for (const [key, fileInfo] of Object.entries(fileInfos)) {
+      if (fileInfo.exists) {
+        try {
+          // Read the file as binary to get a hash
+          const buffer = fs.readFileSync(fileInfo.path);
+          const hash = require('crypto')
+            .createHash('md5')
+            .update(buffer)
+            .digest('hex');
+          
+          fileInfo.md5 = hash;
+          fileInfo.contentSample = buffer.slice(0, 100).toString('hex');
+        } catch (e) {
+          console.error(`Error getting file hash for ${key}:`, e);
+          fileInfo.error = e.message;
+        }
       }
     }
     
     res.json({
-      fileInfo,
+      files: fileInfos,
       serverInfo: {
         time: new Date().toISOString(),
         pid: process.pid,
@@ -479,12 +789,14 @@ app.get('/api/file-info', (req, res) => {
 });
 
 // Debug endpoint with improved error handling
-app.get('/api/debug/excel', (req, res) => {
+app.get('/api/debug/excel/:file?', (req, res) => {
   try {
-    const fileInfo = checkExcelFile();
+    const fileName = req.params.file || 'Solar_Lab_Tests.xlsx';
+    const fileInfo = checkExcelFile(fileName);
+    
     if (!fileInfo.exists) {
       return res.status(404).json({ 
-        error: 'Excel file not found',
+        error: `Excel file ${fileName} not found`,
         fileInfo 
       });
     }
@@ -545,13 +857,20 @@ app.get('/api/debug/excel', (req, res) => {
 
 // Enhanced health check endpoint
 app.get('/health', (req, res) => {
-  const fileInfo = checkExcelFile();
+  // Check all Excel files
+  const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+  const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
+  const certificationsInfo = checkExcelFile('Certifications.xlsx');
   
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    excelFile: fileInfo,
+    excelFiles: {
+      solarLabTests: solarLabInfo,
+      lineTrials: lineTrialsInfo,
+      certifications: certificationsInfo
+    },
     memory: process.memoryUsage()
   });
 });
@@ -560,15 +879,32 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT} at ${new Date().toISOString()}`);
   console.log(`API available at http://localhost:${PORT}/api/test-data`);
+  console.log(`Line Trials API available at http://localhost:${PORT}/api/line-trials`);
+  console.log(`Certifications API available at http://localhost:${PORT}/api/certifications`);
   console.log(`Excel debug endpoint available at http://localhost:${PORT}/api/debug/excel`);
   console.log(`File info endpoint available at http://localhost:${PORT}/api/file-info`);
   
-  // Check Excel file on startup
-  const fileInfo = checkExcelFile();
-  if (fileInfo.exists) {
-    console.log(`Excel file is ready at ${fileInfo.path}, size: ${fileInfo.size} bytes`);
+  // Check Excel files on startup
+  const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+  const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
+  const certificationsInfo = checkExcelFile('Certifications.xlsx');
+  
+  if (solarLabInfo.exists) {
+    console.log(`Solar Lab Tests Excel file is ready at ${solarLabInfo.path}, size: ${solarLabInfo.size} bytes`);
   } else {
-    console.log(`Waiting for Excel file to be synced to ${fileInfo.path}`);
+    console.log(`Waiting for Solar Lab Tests Excel file to be synced to ${solarLabInfo.path}`);
+  }
+  
+  if (lineTrialsInfo.exists) {
+    console.log(`Line Trials Excel file is ready at ${lineTrialsInfo.path}, size: ${lineTrialsInfo.size} bytes`);
+  } else {
+    console.log(`Waiting for Line Trials Excel file to be synced to ${lineTrialsInfo.path}`);
+  }
+  
+  if (certificationsInfo.exists) {
+    console.log(`Certifications Excel file is ready at ${certificationsInfo.path}, size: ${certificationsInfo.size} bytes`);
+  } else {
+    console.log(`Waiting for Certifications Excel file to be synced to ${certificationsInfo.path}`);
   }
 });
 
