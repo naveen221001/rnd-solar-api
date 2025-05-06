@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 
 // Enable CORS for your Netlify domain
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 'https://your-netlify-domain.netlify.app' : '*',
+  origin: process.env.NODE_ENV === 'production' ? 'https://vikramsolar-rnd-rm-dashboard-naveen.netlify.app' : '*',
   methods: ['GET', 'OPTIONS'],
   allowedHeaders: ['Content-Type']
 }));
