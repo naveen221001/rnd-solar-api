@@ -5,37 +5,94 @@ import os
 import sys
 import time
 import requests
-import hashlib
 import urllib.parse
-from onedrivedownloader import download
+import re
 
-def download_from_onedrive(share_url, output_path):
+def get_direct_download_url(share_url):
     """
-    Download a file from OneDrive using a shared link with cache bypass.
+    Convert a OneDrive share URL to a direct download URL.
     
-    Args:
-        share_url: The OneDrive share URL
-        output_path: Path where the file should be saved
+    Works for both OneDrive personal and Business accounts.
     """
-    print(f"Downloading from: {share_url}")
+    # Add timestamp to avoid caching
+    timestamp = int(time.time())
+    
+    # Try to determine if it's a OneDrive personal or business link
+    if "1drv.ms" in share_url:
+        # For personal OneDrive short links (1drv.ms)
+        # First do a HEAD request to get the redirect URL
+        try:
+            response = requests.head(share_url, allow_redirects=True)
+            redirect_url = response.url
+            
+            # Convert the redirected URL to a direct download URL
+            if "onedrive.live.com" in redirect_url:
+                # Replace 'redir' with 'download' in the URL
+                direct_url = redirect_url.replace("redir", "download")
+                # Add timestamp to avoid caching
+                direct_url = f"{direct_url}&_t={timestamp}"
+                return direct_url
+        except Exception as e:
+            print(f"Error resolving 1drv.ms URL: {e}")
+            return None
+    
+    elif "sharepoint.com" in share_url or "onedrive.live.com" in share_url:
+        # For OneDrive business or regular OneDrive links
+        try:
+            if "download=1" not in share_url:
+                # Add download parameter
+                if "?" in share_url:
+                    direct_url = f"{share_url}&download=1&_t={timestamp}"
+                else:
+                    direct_url = f"{share_url}?download=1&_t={timestamp}"
+                return direct_url
+            else:
+                # Already has download parameter, just add timestamp
+                direct_url = f"{share_url}&_t={timestamp}"
+                return direct_url
+        except Exception as e:
+            print(f"Error creating direct URL: {e}")
+            return None
+    
+    # If we couldn't determine the type, return the original URL
+    return f"{share_url}?_t={timestamp}"
+
+def download_file(url, output_path):
+    """
+    Download a file from a URL to the specified path.
+    """
+    print(f"Downloading from: {url}")
     print(f"To: {output_path}")
     
     try:
-        # Add a cache-busting timestamp parameter to the URL
-        timestamp = int(time.time())
-        
-        # Check if URL already has parameters
-        if '?' in share_url:
-            cache_busting_url = f"{share_url}&_cb={timestamp}"
-        else:
-            cache_busting_url = f"{share_url}?_cb={timestamp}"
+        direct_url = get_direct_download_url(url)
+        if not direct_url:
+            direct_url = url
             
-        print(f"Using cache-busting URL: {cache_busting_url}")
+        print(f"Using direct URL: {direct_url}")
         
-        # Use onedrivedownloader library with force download option
-        download(cache_busting_url, filename=output_path, force_download=True)
+        # Make the request with a custom User-Agent
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': '*/*',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        }
         
-        # Verify file size is not 0
+        response = requests.get(direct_url, headers=headers, stream=True)
+        response.raise_for_status()
+        
+        # Get the content length if available
+        total_size = int(response.headers.get('content-length', 0))
+        print(f"Content length: {total_size} bytes")
+        
+        # Save the file
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        
+        # Verify file size
         file_size = os.path.getsize(output_path)
         print(f"Download complete. File size: {file_size} bytes")
         
@@ -43,21 +100,17 @@ def download_from_onedrive(share_url, output_path):
             print(f"WARNING: Downloaded file is empty: {output_path}")
             return False
         
-        # If we have a previous version to compare against in Git, verify the file is different
-        if os.path.exists(f"{output_path}.previous"):
-            with open(output_path, 'rb') as f_new, open(f"{output_path}.previous", 'rb') as f_old:
-                hash_new = hashlib.md5(f_new.read()).hexdigest()
-                hash_old = hashlib.md5(f_old.read()).hexdigest()
-                
-                if hash_new == hash_old:
-                    print(f"WARNING: Downloaded file is identical to previous version")
-                    # Return True anyway since we have a valid file
-                    return True
-        
         return True
     except Exception as e:
         print(f"Error downloading file: {str(e)}")
         return False
+
+def force_changes():
+    """Create a marker file to force Git to recognize changes"""
+    marker_path = "data/.files_changed"
+    with open(marker_path, "w") as f:
+        f.write(f"Files updated at {time.time()}")
+    print(f"Created marker file at {marker_path}")
 
 def main():
     # Create data directory if it doesn't exist
@@ -69,96 +122,34 @@ def main():
     certifications_url = os.environ.get("CERTIFICATIONS_URL")
     
     success = True
-    changed = False
     
     # Download Solar Lab Tests Excel file
     if solar_lab_tests_url:
-        # If the file exists, make a backup for comparison
-        if os.path.exists("data/Solar_Lab_Tests.xlsx"):
-            os.rename("data/Solar_Lab_Tests.xlsx", "data/Solar_Lab_Tests.xlsx.previous")
-        
-        result = download_from_onedrive(solar_lab_tests_url, "data/Solar_Lab_Tests.xlsx")
+        result = download_file(solar_lab_tests_url, "data/Solar_Lab_Tests.xlsx")
         success = result and success
-        
-        # If download was successful and we have a backup, compare them
-        if result and os.path.exists("data/Solar_Lab_Tests.xlsx.previous"):
-            with open("data/Solar_Lab_Tests.xlsx", 'rb') as f_new, open("data/Solar_Lab_Tests.xlsx.previous", 'rb') as f_old:
-                hash_new = hashlib.md5(f_new.read()).hexdigest()
-                hash_old = hashlib.md5(f_old.read()).hexdigest()
-                
-                if hash_new != hash_old:
-                    print("Solar_Lab_Tests.xlsx has changed!")
-                    changed = True
-                else:
-                    print("Solar_Lab_Tests.xlsx is identical to previous version")
-            
-            # Clean up the backup file if no longer needed
-            os.remove("data/Solar_Lab_Tests.xlsx.previous")
     else:
         print("WARNING: SOLAR_LAB_TESTS_URL environment variable not set")
         success = False
     
     # Download Line Trials Excel file
     if line_trials_url:
-        # If the file exists, make a backup for comparison
-        if os.path.exists("data/Line_Trials.xlsx"):
-            os.rename("data/Line_Trials.xlsx", "data/Line_Trials.xlsx.previous")
-            
-        result = download_from_onedrive(line_trials_url, "data/Line_Trials.xlsx")
+        result = download_file(line_trials_url, "data/Line_Trials.xlsx")
         success = result and success
-        
-        # If download was successful and we have a backup, compare them
-        if result and os.path.exists("data/Line_Trials.xlsx.previous"):
-            with open("data/Line_Trials.xlsx", 'rb') as f_new, open("data/Line_Trials.xlsx.previous", 'rb') as f_old:
-                hash_new = hashlib.md5(f_new.read()).hexdigest()
-                hash_old = hashlib.md5(f_old.read()).hexdigest()
-                
-                if hash_new != hash_old:
-                    print("Line_Trials.xlsx has changed!")
-                    changed = True
-                else:
-                    print("Line_Trials.xlsx is identical to previous version")
-            
-            # Clean up the backup file if no longer needed
-            os.remove("data/Line_Trials.xlsx.previous")
     else:
         print("WARNING: LINE_TRIALS_URL environment variable not set")
         success = False
     
     # Download Certifications Excel file
     if certifications_url:
-        # If the file exists, make a backup for comparison
-        if os.path.exists("data/Certifications.xlsx"):
-            os.rename("data/Certifications.xlsx", "data/Certifications.xlsx.previous")
-            
-        result = download_from_onedrive(certifications_url, "data/Certifications.xlsx")
+        result = download_file(certifications_url, "data/Certifications.xlsx")
         success = result and success
-        
-        # If download was successful and we have a backup, compare them
-        if result and os.path.exists("data/Certifications.xlsx.previous"):
-            with open("data/Certifications.xlsx", 'rb') as f_new, open("data/Certifications.xlsx.previous", 'rb') as f_old:
-                hash_new = hashlib.md5(f_new.read()).hexdigest()
-                hash_old = hashlib.md5(f_old.read()).hexdigest()
-                
-                if hash_new != hash_old:
-                    print("Certifications.xlsx has changed!")
-                    changed = True
-                else:
-                    print("Certifications.xlsx is identical to previous version")
-            
-            # Clean up the backup file if no longer needed
-            os.remove("data/Certifications.xlsx.previous")
     else:
         print("WARNING: CERTIFICATIONS_URL environment variable not set")
         success = False
     
-    # Create a marker file to indicate if files have changed
-    if changed:
-        with open("data/.files_changed", "w") as f:
-            f.write("true")
-        print("Files have changed! Created marker file.")
-    else:
-        print("No files have changed.")
+    # Always force changes to be recognized
+    if success:
+        force_changes()
     
     # Exit with error code if any download failed
     if not success:
