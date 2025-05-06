@@ -269,7 +269,7 @@ app.get('/api/test-data', (req, res) => {
       }
     };
     
-    res.json(responseData);
+    res.json(processedData);
   } catch (error) {
     console.error('Error processing request:', error);
     res.status(500).json({ 
