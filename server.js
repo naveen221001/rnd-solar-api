@@ -341,17 +341,40 @@ app.get('/api/line-trials', (req, res) => {
     
     // Process the data as needed for your frontend
     const processedData = lineTrialsData.map((row, index) => {
+      const startDate = parseExcelDate(row['START_DATE']);
+      const endDate = parseExcelDate(row['END_DATE']);
       // Assuming your Excel has columns: vendor, material, status, remarks
       return {
         id: index + 1,
         vendor: row['VENDOR'] || '',
         material: row['MATERIAL'] || '',
         status: row['STATUS'] || '',
+        startDate: startDate,
+        endDate: endDate,
         remarks: row['REMARKS'] || ''
       };
     });
     
-    res.json(processedData);
+    const sortedData = processedData.sort((a, b) => {
+      if ((a.status === 'Completed' || a.status === 'Failed') && 
+          (b.status === 'Completed' || b.status === 'Failed')) {
+        // Both items are completed or failed, sort by end date
+        return b.endDate - a.endDate;
+      } else if ((a.status === 'Completed' || a.status === 'Failed') && 
+                !(b.status === 'Completed' || b.status === 'Failed')) {
+        // A is completed or failed, B is in progress or pending
+        return -1; // A comes first
+      } else if (!(a.status === 'Completed' || a.status === 'Failed') && 
+                (b.status === 'Completed' || b.status === 'Failed')) {
+        // A is in progress or pending, B is completed or failed
+        return 1; // B comes first
+      } else {
+        // Both are in progress or pending, sort by start date
+        return b.startDate - a.startDate;
+      }
+    });
+    
+    res.json(sortedData);
   } catch (error) {
     console.error('Error processing Line Trials request:', error);
     res.status(500).json({ 
@@ -423,92 +446,101 @@ app.get('/api/certifications', (req, res) => {
     };
     
     // Process each sheet for certification data
-    const certificationData = [];
     const certificationDetails = {
       completed: [],
       inProcess: [],
       pending: []
     };
     
-    // Process all sheets to extract certification data
-    for (const [status, sheetName] of Object.entries(certSheets)) {
-      if (!sheetName || !workbook.Sheets[sheetName]) continue;
+    // Process Completed sheet
+    if (workbook.SheetNames.includes('COMPLETED')) {
+      const completedSheet = workbook.Sheets['COMPLETED'];
+      const completedData = xlsx.utils.sheet_to_json(completedSheet);
       
-      const worksheet = workbook.Sheets[sheetName];
-      const data = xlsx.utils.sheet_to_json(worksheet);
-      console.log(`Processed ${data.length} rows from ${sheetName} sheet`);
-      
-      // Extract certification details
-      data.forEach(row => {
-        if (status === 'completed') {
-          certificationDetails.completed.push({
-            product: row['PRODUCT'] || '',
-            certName: row['CERTIFICATION'] || '',
-            date: row['DATE'] || '',
-            agency: row['AGENCY'] || ''
-          });
-        } else if (status === 'inProcess') {
-          certificationDetails.inProcess.push({
-            product: row['PRODUCT'] || '',
-            certName: row['CERTIFICATION'] || '',
-            startDate: row['START DATE'] || '',
-            expected: row['EXPECTED COMPLETION'] || '',
-            agency: row['AGENCY'] || ''
-          });
-        } else if (status === 'pending') {
-          certificationDetails.pending.push({
-            product: row['PRODUCT'] || '',
-            certName: row['CERTIFICATION'] || '',
-            plannedStart: row['PLANNED START'] || '',
-            agency: row['AGENCY'] || ''
-          });
-        }
+      completedData.forEach(row => {
+        const completionDate = parseExcelDate(row['COMPLETION_DATE']);
+        
+        certificationDetails.completed.push({
+          product: row['PRODUCT'] || '',
+          certName: row['CERTIFICATION'] || '',
+          agency: row['AGENCY'] || '',
+          completionDate: completionDate,
+          notes: row['NOTE'] || ''
+        });
       });
+      
+      // Sort by completion date (newest first)
+      certificationDetails.completed.sort((a, b) => b.completionDate - a.completionDate);
     }
     
-    // Summarize certification data by product
+    // Process In Process sheet
+    if (workbook.SheetNames.includes('In Process')) {
+      const inProcessSheet = workbook.Sheets['In Process'];
+      const inProcessData = xlsx.utils.sheet_to_json(inProcessSheet);
+      
+      inProcessData.forEach(row => {
+        const startDate = parseExcelDate(row['START_DATE']);
+        const expectedCompletion = parseExcelDate(row['EXPECTED_COMPLETION']);
+        
+        certificationDetails.inProcess.push({
+          product: row['PRODUCT'] || '',
+          certName: row['CERTIFICATION'] || '',
+          agency: row['AGENCY'] || '',
+          startDate: startDate,
+          expectedCompletion: expectedCompletion,
+          status: row['STATUS'] || ''
+        });
+      });
+      
+      // Sort by start date (newest first)
+      certificationDetails.inProcess.sort((a, b) => b.startDate - a.startDate);
+    }
+    
+    // Process Pending sheet
+    if (workbook.SheetNames.includes('Pending')) {
+      const pendingSheet = workbook.Sheets['Pending'];
+      const pendingData = xlsx.utils.sheet_to_json(pendingSheet);
+      
+      pendingData.forEach(row => {
+        const plannedStart = parseExcelDate(row['PLANNED_START']);
+        
+        certificationDetails.pending.push({
+          product: row['PRODUCT'] || '',
+          certName: row['CERTIFICATION'] || '',
+          agency: row['AGENCY'] || '',
+          plannedStart: plannedStart,
+          priority: row['PRIORITY'] || ''
+        });
+      });
+      
+      // Sort by planned start date (newest first)
+      certificationDetails.pending.sort((a, b) => b.plannedStart - a.plannedStart);
+    }
+    
+    // Create summary data by product
+    const certificationData = [];
     const productSummary = {};
     
-    // Process completed certifications
-    certificationDetails.completed.forEach(cert => {
-      if (!productSummary[cert.product]) {
-        productSummary[cert.product] = { 
-          product: cert.product, 
-          completed: 0, 
-          inProcess: 0, 
-          pending: 0 
-        };
-      }
-      productSummary[cert.product].completed++;
+    // Process all certification data to build product summary
+    ['completed', 'inProcess', 'pending'].forEach(status => {
+      certificationDetails[status].forEach(cert => {
+        const product = cert.product;
+        
+        if (!productSummary[product]) {
+          productSummary[product] = {
+            product: product,
+            completed: 0,
+            inProcess: 0,
+            pending: 0
+          };
+        }
+        
+        // Increment the appropriate counter
+        productSummary[product][status]++;
+      });
     });
     
-    // Process in-process certifications
-    certificationDetails.inProcess.forEach(cert => {
-      if (!productSummary[cert.product]) {
-        productSummary[cert.product] = { 
-          product: cert.product, 
-          completed: 0, 
-          inProcess: 0, 
-          pending: 0 
-        };
-      }
-      productSummary[cert.product].inProcess++;
-    });
-    
-    // Process pending certifications
-    certificationDetails.pending.forEach(cert => {
-      if (!productSummary[cert.product]) {
-        productSummary[cert.product] = { 
-          product: cert.product, 
-          completed: 0, 
-          inProcess: 0, 
-          pending: 0 
-        };
-      }
-      productSummary[cert.product].pending++;
-    });
-    
-    // Convert product summary to array
+    // Convert summary to array
     for (const product in productSummary) {
       certificationData.push(productSummary[product]);
     }
@@ -521,8 +553,7 @@ app.get('/api/certifications', (req, res) => {
     console.error('Error processing Certifications request:', error);
     res.status(500).json({ 
       error: 'Failed to process Certifications request', 
-      details: error.message,
-      stack: error.stack 
+      details: error.message
     });
   }
 });
