@@ -323,7 +323,7 @@ app.get('/api/line-trials', (req, res) => {
     console.log('Available sheets in Line Trials workbook:', workbook.SheetNames);
     
     // Assuming the main sheet is the first one or named "Line Trials"
-    const sheetName = workbook.SheetNames[0]; // First sheet or specify the exact name
+    const sheetName = workbook.SheetNames[1]; // First sheet or specify the exact name
     const worksheet = workbook.Sheets[sheetName];
     if (!worksheet) {
       console.error(`Sheet not found. Available sheets:`, workbook.SheetNames);
@@ -347,11 +347,12 @@ app.get('/api/line-trials', (req, res) => {
       return {
         id: index + 1,
         vendor: row['VENDOR'] || '',
-        material: row['MATERIAL'] || '',
+        material: row['BOM_UNDER_TRIAL'] || '',
         status: row['STATUS'] || '',
         startDate: startDate,
         endDate: endDate,
-        remarks: row['REMARKS'] || ''
+        remarks: row['REMARKS'] || '',
+        orderno: row['ORDER_NO.'] || ''
       };
     });
     
