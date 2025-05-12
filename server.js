@@ -347,7 +347,7 @@ app.get('/api/line-trials', (req, res) => {
       return {
         id: index + 1,
         vendor: row['VENDOR'] || '',
-        material: row['BOM_UNDER_TRIAL'] || '',
+        bomUnderTrial: row['BOM_UNDER_TRIAL'] || '',
         status: row['STATUS'] || '',
         startDate: startDate,
         endDate: endDate,
