@@ -463,10 +463,12 @@ app.get('/api/certifications', (req, res) => {
         
         certificationDetails.completed.push({
           product: row['PRODUCT'] || '',
-          certName: row['CERTIFICATION'] || '',
-          agency: row['AGENCY'] || '',
-          completionDate: completionDate,
-          notes: row['NOTE'] || ''
+    certName: row['CERTIFICATION'] || '',
+    agency: row['AGENCY'] || '',
+    completionDate: completionDate,
+    notes: row['NOTE'] || '',
+    wattpeak: row['WATTPEAK'] || '', // Add wattpeak
+    plantName: row['PLANT_NAME'] || ''
         });
       });
       
@@ -489,7 +491,10 @@ app.get('/api/certifications', (req, res) => {
           agency: row['AGENCY'] || '',
           startDate: startDate,
           expectedCompletion: expectedCompletion,
-          status: row['STATUS'] || ''
+          status: row['STATUS'] || '',
+          wattpeak: row['WATTPEAK'] || '', // Add wattpeak
+    plantName: row['PLANT_NAME'] || ''
+          
         });
       });
       
@@ -510,7 +515,9 @@ app.get('/api/certifications', (req, res) => {
           certName: row['CERTIFICATION'] || '',
           agency: row['AGENCY'] || '',
           plannedStart: plannedStart,
-          priority: row['PRIORITY'] || ''
+          priority: row['PRIORITY'] || '',
+          wattpeak: row['WATTPEAK'] || '', // Add wattpeak
+          plantName: row['PLANT_NAME'] || ''
         });
       });
       
