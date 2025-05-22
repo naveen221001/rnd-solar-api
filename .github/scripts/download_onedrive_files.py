@@ -231,7 +231,15 @@ def main():
     else:
         print("WARNING: CERTIFICATIONS_URL environment variable not set")
         success = False
-    
+
+    # ADD THIS NEW SECTION - Download Chamber Tests Excel file
+    if chamber_tests_url:
+        print("\n=== Processing Chamber Tests file ===")
+        result = download_file(chamber_tests_url, "data/Chamber_Tests.xlsx")
+        success = result and success
+    else:
+        print("WARNING: CHAMBER_TESTS_URL environment variable not set")
+        success = False
     # Always force changes to be recognized
     force_changes()
     
