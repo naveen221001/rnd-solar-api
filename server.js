@@ -46,6 +46,194 @@ function parseExcelDate(dateValue) {
   }
 }
 
+// Updated server.js - Add these functions and endpoint
+
+// Add this helper function after the parseExcelDate function (around line 50)
+function addDays(date, days) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+// Add this comprehensive calculation function after addDays function
+function calculateChamberData(rawData, dailyColumns) {
+  return rawData.map((row, index) => {
+    const moduleId = row['Module ID'] || '';
+    const vslId = row['VSL ID'] || '';
+    const bomUnderTest = row['BOM under test'] || '';
+    const testName = row['Test Name'] || '';
+    const count = parseFloat(row['Count']) || 0;
+    const startDate = parseExcelDate(row['Start Date']);
+    const actualEndDate = parseExcelDate(row['Actual End Date']);
+
+    // Calculate Done (HR) - sum of all daily entries
+    let doneHr = 0;
+    dailyColumns.forEach(col => {
+      const value = parseFloat(row[col]) || 0;
+      doneHr += value;
+    });
+    doneHr = Math.round(doneHr * 100) / 100; // Round to 2 decimal places
+
+    // Calculate Type first (needed for other calculations)
+    let type;
+    if (testName === 'TC' || testName === 'HF') {
+      type = 'Cycle';
+    } else if (testName === 'LID') {
+      type = 'kWHr';
+    } else {
+      type = 'Hr';
+    }
+
+    // Calculate Cycle Time (Hr)
+    let cycleTimeHr;
+    if (type === 'Hr') {
+      cycleTimeHr = 'NA';
+    } else if (testName === 'TC') {
+      cycleTimeHr = 2.1;
+    } else if (testName === 'LETID') {
+      cycleTimeHr = 162;
+    } else if (testName === 'LID') {
+      cycleTimeHr = 1;
+    } else {
+      cycleTimeHr = 24;
+    }
+
+    // Calculate Total Duration (HR)
+    let totalDurationHr;
+    if (cycleTimeHr === 'NA') {
+      totalDurationHr = count;
+    } else {
+      totalDurationHr = count * cycleTimeHr;
+    }
+
+    // Calculate Remaining (HR)
+    let remainingHr;
+    if (doneHr >= totalDurationHr) {
+      remainingHr = 'DONE';
+    } else {
+      remainingHr = Math.round((totalDurationHr - doneHr) * 100) / 100;
+    }
+
+    // Calculate Done (Cycles)
+    let doneCycles;
+    if (testName === 'TC') {
+      doneCycles = Math.round((doneHr / 2.1) * 100) / 100;
+    } else if (testName === 'HF') {
+      doneCycles = Math.round((doneHr / 24) * 100) / 100;
+    } else {
+      doneCycles = '-';
+    }
+
+    // Calculate Remaining (Cycles)
+    let remainingCycles;
+    if (remainingHr === 'DONE') {
+      remainingCycles = '0';
+    } else if (testName === 'TC') {
+      remainingCycles = Math.round((remainingHr / 2.1) * 100) / 100;
+    } else if (testName === 'HF') {
+      remainingCycles = Math.round((remainingHr / 24) * 100) / 100;
+    } else {
+      remainingCycles = '-';
+    }
+
+    // Calculate Tentative End Date
+    let tentativeEndDate = null;
+    
+    // Check conditions: if LID test, or start date is blank, or sum of daily hours < 1
+    const isLID = testName === 'LID';
+    const isStartDateBlank = !startDate;
+    const isDailyHoursLessThanOne = doneHr < 1;
+    
+    if (isLID || isStartDateBlank || isDailyHoursLessThanOne) {
+      tentativeEndDate = null;
+    } else {
+      if (remainingHr === 'DONE') {
+        // Add (Done(HR) + Remaining(HR)) / 24 days to start date
+        // Since remaining is DONE, total duration = doneHr + 0 = totalDurationHr
+        const daysToAdd = Math.ceil(totalDurationHr / 24);
+        tentativeEndDate = addDays(startDate, daysToAdd);
+      } else {
+        // Find the last recorded checkpoint (latest date column with positive value)
+        let lastCheckpointDate = startDate;
+        
+        // Sort daily columns by date to find the latest one with data
+        const sortedDailyColumns = dailyColumns.sort((a, b) => {
+          try {
+            const parseDate = (dateStr) => {
+              const parts = dateStr.split('/');
+              if (parts.length === 3) {
+                const day = parseInt(parts[0]);
+                const month = parseInt(parts[1]) - 1;
+                const year = parseInt(parts[2]) + (parts[2].length === 2 ? 2000 : 0);
+                return new Date(year, month, day);
+              }
+              return new Date(0);
+            };
+            return parseDate(a) - parseDate(b);
+          } catch (e) {
+            return 0;
+          }
+        });
+        
+        // Find the last date with positive value
+        for (let i = sortedDailyColumns.length - 1; i >= 0; i--) {
+          const col = sortedDailyColumns[i];
+          const value = parseFloat(row[col]) || 0;
+          if (value > 0) {
+            try {
+              const dateParts = col.split('/');
+              if (dateParts.length === 3) {
+                const day = parseInt(dateParts[0]);
+                const month = parseInt(dateParts[1]) - 1;
+                const year = parseInt(dateParts[2]) + (dateParts[2].length === 2 ? 2000 : 0);
+                lastCheckpointDate = new Date(year, month, day);
+                break;
+              }
+            } catch (e) {
+              // Continue to next column if parsing fails
+            }
+          }
+        }
+        
+        // Add Remaining(HR) / 24 days to the last checkpoint
+        const daysToAdd = Math.ceil(remainingHr / 24);
+        tentativeEndDate = addDays(lastCheckpointDate, daysToAdd);
+      }
+    }
+
+    // Calculate Lag
+    let lag = null;
+    if (tentativeEndDate && actualEndDate) {
+      const diffTime = actualEndDate - tentativeEndDate;
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays >= 1) {
+        lag = diffDays;
+      } else {
+        lag = 0;
+      }
+    }
+
+    return {
+      id: index + 1,
+      moduleId,
+      vslId,
+      bomUnderTest,
+      testName,
+      count,
+      startDate,
+      doneHr,
+      remainingHr,
+      doneCycles,
+      remainingCycles,
+      tentativeEndDate,
+      lag,
+      type,
+      cycleTimeHr,
+      totalDurationHr,
+      actualEndDate
+    };
+  });
+}
 // Define standard test durations manually as a backup
 const HARDCODED_STD_DURATIONS = {
   'ADHESION - PCT - ADHESION': 6,
@@ -565,6 +753,130 @@ app.get('/api/certifications', (req, res) => {
     });
   }
 });
+
+// Add this complete API endpoint after your certifications endpoint (around line 400)
+app.get('/api/chamber-data', (req, res) => {
+  try {
+    console.log(`API request received for /api/chamber-data at ${new Date().toISOString()}`);
+    
+    const requestInfo = {
+      timestamp: new Date().toISOString(),
+      query: req.query,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'cache-control': req.headers['cache-control']
+      }
+    };
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Chamber_Tests.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Chamber Tests Excel file not found',
+        message: 'The Chamber Tests file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Chamber Tests Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Chamber Tests Excel file',
+        details: readError.message,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    console.log('Available sheets in Chamber Tests workbook:', workbook.SheetNames);
+    
+    // Use the first sheet or find the sheet with chamber data
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) {
+      console.error(`Sheet not found. Available sheets:`, workbook.SheetNames);
+      return res.status(404).json({ 
+        error: `Sheet not found in Chamber Tests Excel file`,
+        availableSheets: workbook.SheetNames,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from Chamber Tests sheet`);
+    
+    if (rawData.length === 0) {
+      return res.json([]);
+    }
+    
+    // Identify daily date columns (columns that look like dates)
+    const allColumns = Object.keys(rawData[0] || {});
+    const dailyColumns = allColumns.filter(col => {
+      // Look for columns that match date patterns like "25/4/25", "10/Feb/25", etc.
+      return /^\d{1,2}\/\w{1,3}\/\d{2,4}$/.test(col) || /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(col);
+    });
+    
+    console.log('Identified daily columns:', dailyColumns.slice(0, 5), '... (total:', dailyColumns.length, ')');
+    
+    // Calculate all derived fields
+    const processedData = calculateChamberData(rawData, dailyColumns);
+    
+    // Sort by status and date (active tests first, then by start date)
+    const sortedData = processedData.sort((a, b) => {
+      // Completed tests go to the end
+      if (a.remainingHr === 'DONE' && b.remainingHr !== 'DONE') return 1;
+      if (a.remainingHr !== 'DONE' && b.remainingHr === 'DONE') return -1;
+      
+      // Among non-completed, sort by start date (most recent first)
+      if (a.startDate && b.startDate) {
+        return new Date(b.startDate) - new Date(a.startDate);
+      }
+      
+      return 0;
+    });
+    
+    console.log(`Returning ${sortedData.length} processed chamber test records`);
+    res.json(sortedData);
+    
+  } catch (error) {
+    console.error('Error processing Chamber Tests request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process Chamber Tests request', 
+      details: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
+// Also update your health check endpoint to include chamber file status
+// Find the existing /health endpoint and update the excelFiles section:
+
+/*
+Update your existing health check endpoint around line 900 to include:
+
+excelFiles: {
+  solarLabTests: solarLabInfo,
+  lineTrials: lineTrialsInfo,
+  certifications: certificationsInfo,
+  chamberTests: checkExcelFile('Chamber_Tests.xlsx')  // ADD THIS LINE
+},
+*/
 
 // Fix for the api/solar-data endpoint
 app.get('/api/solar-data', (req, res) => {
