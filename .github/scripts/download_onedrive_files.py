@@ -198,6 +198,7 @@ def main():
     solar_lab_tests_url = os.environ.get("SOLAR_LAB_TESTS_URL")
     line_trials_url = os.environ.get("LINE_TRIALS_URL")
     certifications_url = os.environ.get("CERTIFICATIONS_URL")
+    chamber_tests_url = os.environ.get("CHAMBER_TESTS_URL")
     
     print("\n=== Starting OneDrive file download process ===")
     print(f"Current directory: {os.getcwd()}")
