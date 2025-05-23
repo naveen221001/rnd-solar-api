@@ -55,8 +55,13 @@ function addDays(date, days) {
   return result;
 }
 
-// Add this comprehensive calculation function after addDays function
-function calculateChamberData(rawData, dailyColumns) {
+function calculateChamberData(rawData, worksheet) {
+  // Get the column range from the worksheet
+  const range = xlsx.utils.decode_range(worksheet['!ref']);
+  
+  // Column Q is column 16 (0-indexed, so Q = 16)
+  const columnQ_Index = 16; // Q is the 17th column (0-indexed = 16)
+  
   return rawData.map((row, index) => {
     const moduleId = row['Module ID'] || '';
     const vslId = row['VSL ID'] || '';
@@ -66,24 +71,34 @@ function calculateChamberData(rawData, dailyColumns) {
     const startDate = parseExcelDate(row['Start Date']);
     const actualEndDate = parseExcelDate(row['Actual End Date']);
 
-    // Calculate Done (HR) - sum of all daily entries
-   // let doneHr = 0;
-   // dailyColumns.forEach(col => {
-    //  const value = parseFloat(row[col]) || 0;
-    //  doneHr += value;
-   // });
-   // doneHr = Math.round(doneHr * 100) / 100; // Round to 2 decimal places
-// added debug code
-    // Calculate Done (HR) - sum of all daily entries
+    // Calculate Done (HR) - sum all values from column Q onwards
     let doneHr = 0;
-    let dailyDetails = []; // For debugging
+    let nonZeroCount = 0;
+    let columnCount = 0;
     
-    dailyColumns.forEach(col => {
-      const value = parseFloat(row[col]) || 0;
-      if (value > 0 && index < 3) { // Log details for first 3 rows
-        dailyDetails.push(`${col}: ${value}`);
+    // Get all column keys
+    const allColumns = Object.keys(row);
+    
+    // Filter and sum columns from Q onwards
+    allColumns.forEach(col => {
+      // Skip the known non-date columns (first 16 columns A-P)
+      const knownColumns = [
+        'Module ID', 'VSL ID', 'BOM under test', 'Test Name', 'Count',
+        'Start Date', 'Progress', 'Done (Hr)', 'Remaining (Hr)',
+        'Done (Cycles)', 'Remaining (Cycles)', 'Tentative End',
+        'Lag', 'Type', 'Cycle Time (Hr)', 'Total Duration (Hr)',
+        'Actual End Date', 'Status'
+      ];
+      
+      // If it's not a known column and contains a value, it's likely a date column
+      if (!knownColumns.includes(col)) {
+        const value = parseFloat(row[col]) || 0;
+        if (!isNaN(value)) {
+          doneHr += value;
+          columnCount++;
+          if (value > 0) nonZeroCount++;
+        }
       }
-      doneHr += value;
     });
     
     doneHr = Math.round(doneHr * 100) / 100; // Round to 2 decimal places
@@ -93,13 +108,11 @@ function calculateChamberData(rawData, dailyColumns) {
       console.log(`\nRow ${index + 1} Debug Info:`);
       console.log(`- Module ID: ${moduleId}, Test Name: ${testName}`);
       console.log(`- Count: ${count}`);
-      console.log(`- Daily columns processed: ${dailyColumns.length}`);
-      console.log(`- Sum of daily hours (Done Hr): ${doneHr}`);
-      if (dailyDetails.length > 0) {
-        console.log(`- Sample daily values: ${dailyDetails.slice(0, 5).join(', ')}${dailyDetails.length > 5 ? '...' : ''}`);
-      }
+      console.log(`- Columns with numeric values: ${columnCount}`);
+      console.log(`- Non-zero entries: ${nonZeroCount}`);
+      console.log(`- Calculated Done (Hr): ${doneHr}`);
     }
-    // ended debug code
+
     // Calculate Type first (needed for other calculations)
     let type;
     if (testName === 'TC' || testName === 'HF') {
@@ -174,56 +187,13 @@ function calculateChamberData(rawData, dailyColumns) {
       tentativeEndDate = null;
     } else {
       if (remainingHr === 'DONE') {
-        // Add (Done(HR) + Remaining(HR)) / 24 days to start date
-        // Since remaining is DONE, total duration = doneHr + 0 = totalDurationHr
         const daysToAdd = Math.ceil(totalDurationHr / 24);
         tentativeEndDate = addDays(startDate, daysToAdd);
       } else {
-        // Find the last recorded checkpoint (latest date column with positive value)
-        let lastCheckpointDate = startDate;
-        
-        // Sort daily columns by date to find the latest one with data
-        const sortedDailyColumns = dailyColumns.sort((a, b) => {
-          try {
-            const parseDate = (dateStr) => {
-              const parts = dateStr.split('/');
-              if (parts.length === 3) {
-                const day = parseInt(parts[0]);
-                const month = parseInt(parts[1]) - 1;
-                const year = parseInt(parts[2]) + (parts[2].length === 2 ? 2000 : 0);
-                return new Date(year, month, day);
-              }
-              return new Date(0);
-            };
-            return parseDate(a) - parseDate(b);
-          } catch (e) {
-            return 0;
-          }
-        });
-        
-        // Find the last date with positive value
-        for (let i = sortedDailyColumns.length - 1; i >= 0; i--) {
-          const col = sortedDailyColumns[i];
-          const value = parseFloat(row[col]) || 0;
-          if (value > 0) {
-            try {
-              const dateParts = col.split('/');
-              if (dateParts.length === 3) {
-                const day = parseInt(dateParts[0]);
-                const month = parseInt(dateParts[1]) - 1;
-                const year = parseInt(dateParts[2]) + (dateParts[2].length === 2 ? 2000 : 0);
-                lastCheckpointDate = new Date(year, month, day);
-                break;
-              }
-            } catch (e) {
-              // Continue to next column if parsing fails
-            }
-          }
-        }
-        
-        // Add Remaining(HR) / 24 days to the last checkpoint
+        // For now, just add remaining hours / 24 to today
+        const today = new Date();
         const daysToAdd = Math.ceil(remainingHr / 24);
-        tentativeEndDate = addDays(lastCheckpointDate, daysToAdd);
+        tentativeEndDate = addDays(today, daysToAdd);
       }
     }
 
@@ -260,6 +230,7 @@ function calculateChamberData(rawData, dailyColumns) {
     };
   });
 }
+
 // Define standard test durations manually as a backup
 const HARDCODED_STD_DURATIONS = {
   'ADHESION - PCT - ADHESION': 6,
@@ -780,7 +751,7 @@ app.get('/api/certifications', (req, res) => {
   }
 });
 
-// Add this complete API endpoint after your certifications endpoint (around line 400)
+// And update your /api/chamber-data endpoint to use this simplified approach:
 app.get('/api/chamber-data', (req, res) => {
   try {
     console.log(`API request received for /api/chamber-data at ${new Date().toISOString()}`);
@@ -799,7 +770,7 @@ app.get('/api/chamber-data', (req, res) => {
     if (!fileInfo.exists) {
       return res.status(404).json({ 
         error: 'Chamber Tests Excel file not found',
-        message: 'The Chamber Tests file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        message: 'The Chamber Tests file has not been synced yet from OneDrive.',
         fileInfo,
         requestInfo
       });
@@ -830,7 +801,7 @@ app.get('/api/chamber-data', (req, res) => {
     
     console.log('Available sheets in Chamber Tests workbook:', workbook.SheetNames);
     
-    // Use the first sheet or find the sheet with chamber data
+    // Use the first sheet
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     if (!worksheet) {
@@ -851,29 +822,14 @@ app.get('/api/chamber-data', (req, res) => {
       return res.json([]);
     }
     
-    // Identify daily date columns (columns that look like dates)
-    const allColumns = Object.keys(rawData[0] || {});
-    const dailyColumns = allColumns.filter(col => {
-      // Look for columns that match date patterns like "25/4/25", "10/Feb/25", etc.
-      return /^\d{1,2}\/[A-Za-z]{3}\/\d{2}$/.test(col) || // Matches "04/Feb/25" or "4/Feb/25"
-         /^\d{1,2}\/[A-Za-z]{3}\/\d{4}$/.test(col) || // Matches "04/Feb/2025" 
-         /^\d{1,2}\/\d{1,2}\/\d{2}$/.test(col) ||     // Matches "04/02/25"
-         /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(col);       // Matches "04/02/2025"
-});
-    // added a debug
-    // Add detailed logging to debug
-console.log('First 10 column headers:', allColumns.slice(0, 10));
-console.log('Identified daily columns (first 10):', dailyColumns.slice(0, 10));
-console.log('Total daily columns found:', dailyColumns.length);
-
-// Log a sample of what was identified vs what was not
-const nonDailyColumns = allColumns.filter(col => !dailyColumns.includes(col));
-console.log('Non-daily columns:', nonDailyColumns);
-    // ended a debug
-    console.log('Identified daily columns:', dailyColumns.slice(0, 5), '... (total:', dailyColumns.length, ')');
+    // Log total columns for debugging
+    if (rawData.length > 0) {
+      const totalColumns = Object.keys(rawData[0]).length;
+      console.log(`Total columns in data: ${totalColumns}`);
+    }
     
-    // Calculate all derived fields
-    const processedData = calculateChamberData(rawData, dailyColumns);
+    // Calculate all derived fields with the simplified approach
+    const processedData = calculateChamberData(rawData, worksheet);
     
     // Sort by status and date (active tests first, then by start date)
     const sortedData = processedData.sort((a, b) => {
@@ -901,20 +857,6 @@ console.log('Non-daily columns:', nonDailyColumns);
     });
   }
 });
-
-// Also update your health check endpoint to include chamber file status
-// Find the existing /health endpoint and update the excelFiles section:
-
-/*
-Update your existing health check endpoint around line 900 to include:
-
-excelFiles: {
-  solarLabTests: solarLabInfo,
-  lineTrials: lineTrialsInfo,
-  certifications: certificationsInfo,
-  chamberTests: checkExcelFile('Chamber_Tests.xlsx')  // ADD THIS LINE
-},
-*/
 
 // Fix for the api/solar-data endpoint
 app.get('/api/solar-data', (req, res) => {
