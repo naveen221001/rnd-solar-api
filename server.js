@@ -829,8 +829,11 @@ app.get('/api/chamber-data', (req, res) => {
     const allColumns = Object.keys(rawData[0] || {});
     const dailyColumns = allColumns.filter(col => {
       // Look for columns that match date patterns like "25/4/25", "10/Feb/25", etc.
-      return /^\d{1,2}\/\w{1,3}\/\d{2,4}$/.test(col) || /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(col);
-    });
+      return /^\d{1,2}\/[A-Za-z]{3}\/\d{2}$/.test(col) || // Matches "04/Feb/25" or "4/Feb/25"
+         /^\d{1,2}\/[A-Za-z]{3}\/\d{4}$/.test(col) || // Matches "04/Feb/2025" 
+         /^\d{1,2}\/\d{1,2}\/\d{2}$/.test(col) ||     // Matches "04/02/25"
+         /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(col);       // Matches "04/02/2025"
+});
     
     console.log('Identified daily columns:', dailyColumns.slice(0, 5), '... (total:', dailyColumns.length, ')');
     
