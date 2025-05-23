@@ -67,13 +67,39 @@ function calculateChamberData(rawData, dailyColumns) {
     const actualEndDate = parseExcelDate(row['Actual End Date']);
 
     // Calculate Done (HR) - sum of all daily entries
+   // let doneHr = 0;
+   // dailyColumns.forEach(col => {
+    //  const value = parseFloat(row[col]) || 0;
+    //  doneHr += value;
+   // });
+   // doneHr = Math.round(doneHr * 100) / 100; // Round to 2 decimal places
+// added debug code
+    // Calculate Done (HR) - sum of all daily entries
     let doneHr = 0;
+    let dailyDetails = []; // For debugging
+    
     dailyColumns.forEach(col => {
       const value = parseFloat(row[col]) || 0;
+      if (value > 0 && index < 3) { // Log details for first 3 rows
+        dailyDetails.push(`${col}: ${value}`);
+      }
       doneHr += value;
     });
+    
     doneHr = Math.round(doneHr * 100) / 100; // Round to 2 decimal places
-
+    
+    // Debug logging for first few rows
+    if (index < 3) {
+      console.log(`\nRow ${index + 1} Debug Info:`);
+      console.log(`- Module ID: ${moduleId}, Test Name: ${testName}`);
+      console.log(`- Count: ${count}`);
+      console.log(`- Daily columns processed: ${dailyColumns.length}`);
+      console.log(`- Sum of daily hours (Done Hr): ${doneHr}`);
+      if (dailyDetails.length > 0) {
+        console.log(`- Sample daily values: ${dailyDetails.slice(0, 5).join(', ')}${dailyDetails.length > 5 ? '...' : ''}`);
+      }
+    }
+    // ended debug code
     // Calculate Type first (needed for other calculations)
     let type;
     if (testName === 'TC' || testName === 'HF') {
@@ -834,7 +860,16 @@ app.get('/api/chamber-data', (req, res) => {
          /^\d{1,2}\/\d{1,2}\/\d{2}$/.test(col) ||     // Matches "04/02/25"
          /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(col);       // Matches "04/02/2025"
 });
-    
+    // added a debug
+    // Add detailed logging to debug
+console.log('First 10 column headers:', allColumns.slice(0, 10));
+console.log('Identified daily columns (first 10):', dailyColumns.slice(0, 10));
+console.log('Total daily columns found:', dailyColumns.length);
+
+// Log a sample of what was identified vs what was not
+const nonDailyColumns = allColumns.filter(col => !dailyColumns.includes(col));
+console.log('Non-daily columns:', nonDailyColumns);
+    // ended a debug
     console.log('Identified daily columns:', dailyColumns.slice(0, 5), '... (total:', dailyColumns.length, ')');
     
     // Calculate all derived fields
