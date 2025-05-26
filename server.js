@@ -12,7 +12,8 @@ const userMap = {
   "gopal.kumar@vikramsolar.com": "Gopal Kumar",
   "jai.jaiswal@vikramsolar.com": "Jai Jaiswal",
   "shakya.acharya@vikramsolar.com": "Shakya Acharya",
-  "deepanjana.adak@vikramsolar.com": "Deepanjana Adak"
+  "deepanjana.adak@vikramsolar.com": "Deepanjana Adak",
+  "sumit.kumar@vikramsolar.com": "Sumit Kumar"
 };
 
 // Authorized R&D team emails
@@ -31,7 +32,7 @@ const AUTHORIZED_EMAILS = [
   "shakya.acharya@vikramsolar.com",
   "deepanjana.adak@vikramsolar.com",
   // 2 spaces reserved for future team members
-  "",
+  "sumit.kumar@vikramsolar.com",
   ""
 ];
 
