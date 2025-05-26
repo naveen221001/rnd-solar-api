@@ -1,17 +1,98 @@
-// server.js - Express server to serve Excel data as API
+// Complete server.js - Express server with Microsoft Authentication
+const userMap = {
+  "naveen.chamaria@vikramsolar.com": "Naveen Kumar Chamaria",
+  "aritra.de@vikramsolar.com": "Aritra De",
+  "arindam.halder@vikramsolar.com": "Arindam Halder",
+  "arup.mahapatra@vikramsolar.com": "Arup Mahapatra",
+  "tannu@vikramsolar.com": "Tannu",
+  "tanushree.roy@vikramsolar.com": "Tanushree Roy",
+  "soumya.ghosal@vikramsolar.com": "Soumya Ghosal",
+  "krishanu.ghosh@vikramsolar.com": "Krishanu Ghosh",
+  "samaresh.banerjee@vikramsolar.com": "Samaresh Banerjee",
+  "gopal.kumar@vikramsolar.com": "Gopal Kumar",
+  "jai.jaiswal@vikramsolar.com": "Jai Jaiswal",
+  "shakya.acharya@vikramsolar.com": "Shakya Acharya",
+  "deepanjana.adak@vikramsolar.com": "Deepanjana Adak"
+};
+
+// Authorized R&D team emails
+const AUTHORIZED_EMAILS = [
+  "naveen.chamaria@vikramsolar.com",
+  "aritra.de@vikramsolar.com",
+  "arindam.halder@vikramsolar.com",
+  "arup.mahapatra@vikramsolar.com",
+  "tannu@vikramsolar.com",
+  "tanushree.roy@vikramsolar.com",
+  "soumya.ghosal@vikramsolar.com",
+  "krishanu.ghosh@vikramsolar.com",
+  "samaresh.banerjee@vikramsolar.com",
+  "gopal.kumar@vikramsolar.com",
+  "jai.jaiswal@vikramsolar.com",
+  "shakya.acharya@vikramsolar.com",
+  "deepanjana.adak@vikramsolar.com",
+  // 2 spaces reserved for future team members
+  "",
+  ""
+];
+
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Enable CORS for your Netlify domain
+// Microsoft Azure AD configuration
+const client = jwksClient({
+  jwksUri: `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}/discovery/v2.0/keys`
+});
+
+function getKey(header, callback) {
+  client.getSigningKey(header.kid, function (err, key) {
+    const signingKey = key.getPublicKey();
+    callback(null, signingKey);
+  });
+}
+
+// Authentication middleware for Microsoft tokens
+function authenticateMicrosoftToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ message: 'Token missing' });
+  }
+
+  jwt.verify(token, getKey, {}, (err, decoded) => {
+    if (err) {
+      console.error("❌ Microsoft token verification failed:", err);
+      return res.status(403).json({ message: 'Invalid token' });
+    }
+    
+    // Check if user email is authorized
+    const userEmail = decoded.preferred_username || decoded.upn || decoded.email;
+    
+    if (!AUTHORIZED_EMAILS.includes(userEmail)) {
+      console.log(`❌ Unauthorized email attempted access: ${userEmail}`);
+      return res.status(403).json({ message: 'Unauthorized email address' });
+    }
+    
+    console.log(`✅ Authorized user authenticated: ${userMap[userEmail] || userEmail}`);
+    req.user = decoded;
+    next();
+  });
+}
+
+// Enable CORS for your domains (updated to include Authorization header)
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? 'https://vikramsolar-rnd-rm-dashboard-naveen.netlify.app' : '*',
   methods: ['GET', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
+  allowedHeaders: ['Content-Type', 'Authorization'] // Added Authorization header
 }));
 
 // Disable response caching
@@ -46,9 +127,7 @@ function parseExcelDate(dateValue) {
   }
 }
 
-// Updated server.js - Add these functions and endpoint
-
-// Add this helper function after the parseExcelDate function (around line 50)
+// Add this helper function after the parseExcelDate function
 function addDays(date, days) {
   const result = new Date(date);
   result.setDate(result.getDate() + days);
@@ -279,14 +358,16 @@ function checkExcelFile(filename) {
   return fileInfo;
 }
 
-// API endpoint for test data
-app.get('/api/test-data', (req, res) => {
+// API endpoint for test data - NOW WITH AUTHENTICATION
+app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
   try {
-    console.log(`API request received for /api/test-data at ${new Date().toISOString()}`);
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/test-data from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
     
     // Add request info to response for debugging
     const requestInfo = {
       timestamp: new Date().toISOString(),
+      user: userEmail,
       query: req.query,
       headers: {
         'user-agent': req.headers['user-agent'],
@@ -454,14 +535,16 @@ app.get('/api/test-data', (req, res) => {
   }
 });
 
-// API endpoint for line trials data
-app.get('/api/line-trials', (req, res) => {
+// API endpoint for line trials data - NOW WITH AUTHENTICATION
+app.get('/api/line-trials', authenticateMicrosoftToken, (req, res) => {
   try {
-    console.log(`API request received for /api/line-trials at ${new Date().toISOString()}`);
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/line-trials from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
     
     // Add request info to response for debugging
     const requestInfo = {
       timestamp: new Date().toISOString(),
+      user: userEmail,
       query: req.query,
       headers: {
         'user-agent': req.headers['user-agent'],
@@ -571,14 +654,16 @@ app.get('/api/line-trials', (req, res) => {
   }
 });
 
-// API endpoint for certifications data
-app.get('/api/certifications', (req, res) => {
+// API endpoint for certifications data - NOW WITH AUTHENTICATION
+app.get('/api/certifications', authenticateMicrosoftToken, (req, res) => {
   try {
-    console.log(`API request received for /api/certifications at ${new Date().toISOString()}`);
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/certifications from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
     
     // Add request info to response for debugging
     const requestInfo = {
       timestamp: new Date().toISOString(),
+      user: userEmail,
       query: req.query,
       headers: {
         'user-agent': req.headers['user-agent'],
@@ -624,13 +709,6 @@ app.get('/api/certifications', (req, res) => {
     // Log available sheets
     console.log('Available sheets in Certifications workbook:', workbook.SheetNames);
     
-    // We expect multiple sheets for different certification statuses
-    const certSheets = {
-      completed: workbook.SheetNames.find(name => name.toLowerCase().includes('completed')) || workbook.SheetNames[0],
-      inProcess: workbook.SheetNames.find(name => name.toLowerCase().includes('process') || name.toLowerCase().includes('progress')) || workbook.SheetNames[1],
-      pending: workbook.SheetNames.find(name => name.toLowerCase().includes('pending')) || workbook.SheetNames[2]
-    };
-    
     // Process each sheet for certification data
     const certificationDetails = {
       completed: [],
@@ -648,12 +726,12 @@ app.get('/api/certifications', (req, res) => {
         
         certificationDetails.completed.push({
           product: row['PRODUCT'] || '',
-    certName: row['CERTIFICATION'] || '',
-    agency: row['AGENCY'] || '',
-    completionDate: completionDate,
-    notes: row['NOTE'] || '',
-    wattpeak: row['WATTPEAK'] || '', // Add wattpeak
-    plantName: row['PLANT_NAME'] || ''
+          certName: row['CERTIFICATION'] || '',
+          agency: row['AGENCY'] || '',
+          completionDate: completionDate,
+          notes: row['NOTE'] || '',
+          wattpeak: row['WATTPEAK'] || '',
+          plantName: row['PLANT_NAME'] || ''
         });
       });
       
@@ -677,9 +755,8 @@ app.get('/api/certifications', (req, res) => {
           startDate: startDate,
           expectedCompletion: expectedCompletion,
           status: row['STATUS'] || '',
-          wattpeak: row['WATTPEAK'] || '', // Add wattpeak
-    plantName: row['PLANT_NAME'] || ''
-          
+          wattpeak: row['WATTPEAK'] || '',
+          plantName: row['PLANT_NAME'] || ''
         });
       });
       
@@ -701,7 +778,7 @@ app.get('/api/certifications', (req, res) => {
           agency: row['AGENCY'] || '',
           plannedStart: plannedStart,
           priority: row['PRIORITY'] || '',
-          wattpeak: row['WATTPEAK'] || '', // Add wattpeak
+          wattpeak: row['WATTPEAK'] || '',
           plantName: row['PLANT_NAME'] || ''
         });
       });
@@ -751,13 +828,15 @@ app.get('/api/certifications', (req, res) => {
   }
 });
 
-// And update your /api/chamber-data endpoint to use this simplified approach:
-app.get('/api/chamber-data', (req, res) => {
+// API endpoint for chamber data - NOW WITH AUTHENTICATION
+app.get('/api/chamber-data', authenticateMicrosoftToken, (req, res) => {
   try {
-    console.log(`API request received for /api/chamber-data at ${new Date().toISOString()}`);
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/chamber-data from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
     
     const requestInfo = {
       timestamp: new Date().toISOString(),
+      user: userEmail,
       query: req.query,
       headers: {
         'user-agent': req.headers['user-agent'],
@@ -858,18 +937,19 @@ app.get('/api/chamber-data', (req, res) => {
   }
 });
 
-// Fix for the api/solar-data endpoint
-app.get('/api/solar-data', (req, res) => {
+// Fix for the api/solar-data endpoint - NOW WITH AUTHENTICATION
+app.get('/api/solar-data', authenticateMicrosoftToken, (req, res) => {
   console.log('Received request to /api/solar-data, redirecting to /api/test-data');
   // This redirects api/solar-data requests to api/test-data
   req.url = '/api/test-data';
   app.handle(req, res);
 });
 
-// Metadata endpoint with improved error handling
-app.get('/api/metadata', (req, res) => {
+// Metadata endpoint with improved error handling - NOW WITH AUTHENTICATION
+app.get('/api/metadata', authenticateMicrosoftToken, (req, res) => {
   try {
-    console.log(`API request received for /api/metadata at ${new Date().toISOString()}`);
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/metadata from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
     
     // Check if the Excel file exists
     const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
@@ -956,7 +1036,8 @@ app.get('/api/metadata', (req, res) => {
       uniqueTests: Array.from(uniqueTests),
       metadata: {
         fileInfo: fileInfo,
-        generatedAt: new Date().toISOString()
+        generatedAt: new Date().toISOString(),
+        requestedBy: userEmail
       }
     };
     
@@ -970,9 +1051,12 @@ app.get('/api/metadata', (req, res) => {
   }
 });
 
-// Enhanced file status endpoint
-app.get('/api/data-status', (req, res) => {
+// Enhanced file status endpoint - NOW WITH AUTHENTICATION
+app.get('/api/data-status', authenticateMicrosoftToken, (req, res) => {
   try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/data-status from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
     // Check all Excel files
     const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
     const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
@@ -986,7 +1070,8 @@ app.get('/api/data-status', (req, res) => {
           solarLabInfo,
           lineTrialsInfo,
           certificationsInfo
-        }
+        },
+        user: userEmail
       });
     }
     
@@ -1053,7 +1138,8 @@ app.get('/api/data-status', (req, res) => {
     res.json({
       success: true,
       files: fileDetails,
-      serverTime: new Date().toISOString()
+      serverTime: new Date().toISOString(),
+      user: userEmail
     });
   } catch (error) {
     console.error('Error checking file status:', error);
@@ -1065,9 +1151,12 @@ app.get('/api/data-status', (req, res) => {
   }
 });
 
-// New file info endpoint
-app.get('/api/file-info', (req, res) => {
+// New file info endpoint - NOW WITH AUTHENTICATION
+app.get('/api/file-info', authenticateMicrosoftToken, (req, res) => {
   try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/file-info from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
     // Check all Excel files
     const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
     const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
@@ -1106,7 +1195,8 @@ app.get('/api/file-info', (req, res) => {
         pid: process.pid,
         platform: process.platform,
         nodeVersion: process.version,
-        memoryUsage: process.memoryUsage()
+        memoryUsage: process.memoryUsage(),
+        requestedBy: userEmail
       }
     });
   } catch (error) {
@@ -1119,10 +1209,13 @@ app.get('/api/file-info', (req, res) => {
   }
 });
 
-// Debug endpoint with improved error handling
-app.get('/api/debug/excel/:file?', (req, res) => {
+// Debug endpoint with improved error handling - NOW WITH AUTHENTICATION
+app.get('/api/debug/excel/:file?', authenticateMicrosoftToken, (req, res) => {
   try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
     const fileName = req.params.file || 'Solar_Lab_Tests.xlsx';
+    console.log(`API request received for /api/debug/excel/${fileName} from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
     const fileInfo = checkExcelFile(fileName);
     
     if (!fileInfo.exists) {
@@ -1175,7 +1268,8 @@ app.get('/api/debug/excel/:file?', (req, res) => {
       fileName: path.basename(fileInfo.path),
       fileInfo: fileInfo,
       sheets: sheetsInfo,
-      serverTime: new Date().toISOString()
+      serverTime: new Date().toISOString(),
+      requestedBy: userEmail
     });
     
   } catch (error) {
@@ -1186,8 +1280,22 @@ app.get('/api/debug/excel/:file?', (req, res) => {
   }
 });
 
-// Enhanced health check endpoint
+// Enhanced health check endpoint with user tracking
 app.get('/health', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  let userInfo = 'Anonymous';
+  
+  if (token) {
+    try {
+      const decoded = jwt.decode(token);
+      const userEmail = decoded?.preferred_username || decoded?.upn || decoded?.email;
+      userInfo = userMap[userEmail] || userEmail || 'Unknown User';
+    } catch (e) {
+      userInfo = 'Token Error';
+    }
+  }
+  
   // Check all Excel files
   const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
   const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
@@ -1197,23 +1305,31 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    requestedBy: userInfo,
     excelFiles: {
       solarLabTests: solarLabInfo,
       lineTrials: lineTrialsInfo,
       certifications: certificationsInfo
     },
-    memory: process.memoryUsage()
+    memory: process.memoryUsage(),
+    environment: process.env.NODE_ENV || 'development',
+    authenticationEnabled: true,
+    authorizedUsers: AUTHORIZED_EMAILS.filter(email => email).length
   });
 });
 
 // Start the server with more debug info
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT} at ${new Date().toISOString()}`);
-  console.log(`API available at http://localhost:${PORT}/api/test-data`);
-  console.log(`Line Trials API available at http://localhost:${PORT}/api/line-trials`);
-  console.log(`Certifications API available at http://localhost:${PORT}/api/certifications`);
-  console.log(`Excel debug endpoint available at http://localhost:${PORT}/api/debug/excel`);
-  console.log(`File info endpoint available at http://localhost:${PORT}/api/file-info`);
+  console.log(`🚀 Server running on port ${PORT} at ${new Date().toISOString()}`);
+  console.log(`🔐 Microsoft Authentication ENABLED`);
+  console.log(`👥 Authorized users: ${AUTHORIZED_EMAILS.filter(email => email).length} team members`);
+  console.log(`🌐 API available at http://localhost:${PORT}/api/test-data`);
+  console.log(`📊 Line Trials API available at http://localhost:${PORT}/api/line-trials`);
+  console.log(`📋 Certifications API available at http://localhost:${PORT}/api/certifications`);
+  console.log(`🏠 Chamber Tests API available at http://localhost:${PORT}/api/chamber-data`);
+  console.log(`🔍 Excel debug endpoint available at http://localhost:${PORT}/api/debug/excel`);
+  console.log(`📁 File info endpoint available at http://localhost:${PORT}/api/file-info`);
+  console.log(`❤️ Health check available at http://localhost:${PORT}/health`);
   
   // Check Excel files on startup
   const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
@@ -1221,22 +1337,25 @@ app.listen(PORT, () => {
   const certificationsInfo = checkExcelFile('Certifications.xlsx');
   
   if (solarLabInfo.exists) {
-    console.log(`Solar Lab Tests Excel file is ready at ${solarLabInfo.path}, size: ${solarLabInfo.size} bytes`);
+    console.log(`✅ Solar Lab Tests Excel file is ready at ${solarLabInfo.path}, size: ${solarLabInfo.size} bytes`);
   } else {
-    console.log(`Waiting for Solar Lab Tests Excel file to be synced to ${solarLabInfo.path}`);
+    console.log(`⏳ Waiting for Solar Lab Tests Excel file to be synced to ${solarLabInfo.path}`);
   }
   
   if (lineTrialsInfo.exists) {
-    console.log(`Line Trials Excel file is ready at ${lineTrialsInfo.path}, size: ${lineTrialsInfo.size} bytes`);
+    console.log(`✅ Line Trials Excel file is ready at ${lineTrialsInfo.path}, size: ${lineTrialsInfo.size} bytes`);
   } else {
-    console.log(`Waiting for Line Trials Excel file to be synced to ${lineTrialsInfo.path}`);
+    console.log(`⏳ Waiting for Line Trials Excel file to be synced to ${lineTrialsInfo.path}`);
   }
   
   if (certificationsInfo.exists) {
-    console.log(`Certifications Excel file is ready at ${certificationsInfo.path}, size: ${certificationsInfo.size} bytes`);
+    console.log(`✅ Certifications Excel file is ready at ${certificationsInfo.path}, size: ${certificationsInfo.size} bytes`);
   } else {
-    console.log(`Waiting for Certifications Excel file to be synced to ${certificationsInfo.path}`);
+    console.log(`⏳ Waiting for Certifications Excel file to be synced to ${certificationsInfo.path}`);
   }
+  
+  console.log('🔒 All API endpoints are now protected with Microsoft Authentication');
+  console.log('📧 Only authorized Vikram Solar R&D team members can access the API');
 });
 
 // Handle graceful shutdown
