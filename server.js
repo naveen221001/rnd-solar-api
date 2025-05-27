@@ -8,7 +8,7 @@ const userMap = {
   "tanushree.roy@vikramsolar.com": "Tanushree Roy",
   "soumya.ghosal@vikramsolar.com": "Soumya Ghosal",
   "krishanu.ghosh@vikramsolar.com": "Krishanu Ghosh",
-  "samaresh.banerjee@vikramsolar.com": "Samaresh Banerjee",
+  "Samaresh.Banerjee@vikramsolar.com": "Samaresh Banerjee",
   "gopal.kumar@vikramsolar.com": "Gopal Kumar",
   "jai.jaiswal@vikramsolar.com": "Jai Jaiswal",
   "shakya.acharya@vikramsolar.com": "Shakya Acharya",
