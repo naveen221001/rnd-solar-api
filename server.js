@@ -13,7 +13,7 @@ const userMap = {
   "jai.jaiswal@vikramsolar.com": "Jai Jaiswal",
   "shakya.acharya@vikramsolar.com": "Shakya Acharya",
   "deepanjana.adak@vikramsolar.com": "Deepanjana Adak",
-  "sumit.kumar@vikramsolar.com": "Sumit Kumar"
+  "sumit.kumar@vikramsolar.com": "Sumit Kumar",
   "rnd.lab@vikramsolar.com": "R&D Lab"
 };
 
