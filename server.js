@@ -14,6 +14,7 @@ const userMap = {
   "shakya.acharya@vikramsolar.com": "Shakya Acharya",
   "deepanjana.adak@vikramsolar.com": "Deepanjana Adak",
   "sumit.kumar@vikramsolar.com": "Sumit Kumar"
+  "rnd.lab@vikramsolar.com": "R&D Lab"
 };
 
 // Authorized R&D team emails
@@ -33,7 +34,7 @@ const AUTHORIZED_EMAILS = [
   "deepanjana.adak@vikramsolar.com",
   // 2 spaces reserved for future team members
   "sumit.kumar@vikramsolar.com",
-  ""
+  "rnd.lab@vikramsolar.com"
 ];
 
 require('dotenv').config();
