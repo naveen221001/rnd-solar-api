@@ -331,6 +331,125 @@ const HARDCODED_STD_DURATIONS = {
   'PEEL STRENGTH': 2
 };
 
+
+// Add this function after the calculateChamberData function in server.js
+
+// Function to calculate shrinkage test results from Sheet1 format
+function calculateShrinkageResults(shrinkageData) {
+  return shrinkageData.map((row, index) => {
+    // Parse numeric values from your exact column structure
+    const td1WithoutHit = parseFloat(row['TD1']) || 0; // Column C
+    const td2WithoutHit = parseFloat(row['TD2']) || 0; // Column D  
+    const md1WithoutHit = parseFloat(row['MD1']) || 0; // Column E
+    const md2WithoutHit = parseFloat(row['MD2']) || 0; // Column F
+    
+    // Handle WITH HIT columns (Excel may add __1 suffix for duplicate headers)
+    const td1WithHit = parseFloat(row['TD1__1'] || row['TD1_1'] || row['Column7']) || 0; // Column G
+    const td2WithHit = parseFloat(row['TD2__1'] || row['TD2_1'] || row['Column8']) || 0; // Column H
+    const md1WithHit = parseFloat(row['MD1__1'] || row['MD1_1'] || row['Column9']) || 0; // Column I
+    const md2WithHit = parseFloat(row['MD2__1'] || row['MD2_1'] || row['Column10']) || 0; // Column J
+    
+    // Calculate means
+    const tdMeanWithoutHit = (td1WithoutHit + td2WithoutHit) / 2;
+    const tdMeanWithHit = (td1WithHit + td2WithHit) / 2;
+    const mdMeanWithoutHit = (md1WithoutHit + md2WithoutHit) / 2;
+    const mdMeanWithHit = (md1WithHit + md2WithHit) / 2;
+    
+    // Calculate absolute differences
+    const tdDifference = Math.abs(tdMeanWithHit - tdMeanWithoutHit);
+    const mdDifference = Math.abs(mdMeanWithHit - mdMeanWithoutHit);
+    
+    // Determine pass/fail status (less than 1% = pass)
+    const tdStatus = tdDifference < 1.0 ? 'PASS' : 'FAIL';
+    const mdStatus = mdDifference < 1.0 ? 'PASS' : 'FAIL';
+    
+    // Final status: PASS only if both TD and MD are PASS
+    const finalStatus = (tdStatus === 'PASS' && mdStatus === 'PASS') ? 'PASS' : 'FAIL';
+    
+    return {
+      id: index + 1,
+      vendorName: row['VENDOR NAME'] || '',
+      encapsulantType: row['ENCAPSULANT TYPE'] || '',
+      
+      // Raw values
+      td1WithoutHit,
+      td2WithoutHit,
+      md1WithoutHit,
+      md2WithoutHit,
+      td1WithHit,
+      td2WithHit,
+      md1WithHit,
+      md2WithHit,
+      
+      // Calculated values
+      tdMeanWithoutHit: Math.round(tdMeanWithoutHit * 100) / 100,
+      tdMeanWithHit: Math.round(tdMeanWithHit * 100) / 100,
+      mdMeanWithoutHit: Math.round(mdMeanWithoutHit * 100) / 100,
+      mdMeanWithHit: Math.round(mdMeanWithHit * 100) / 100,
+      
+      // Differences
+      tdDifference: Math.round(tdDifference * 100) / 100,
+      mdDifference: Math.round(mdDifference * 100) / 100,
+      
+      // Status
+      tdStatus,
+      mdStatus,
+      finalStatus
+    };
+  });
+}
+
+// Function to update test results in Test Data based on shrinkage results
+function updateTestDataWithShrinkageResults(testData, shrinkageResults) {
+  return testData.map(testRow => {
+    // Check if this is a shrinkage test
+    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('SHRINKAGE')) {
+      const vendorName = testRow['VENDOR NAME'];
+      
+      // Find matching shrinkage results for this vendor
+      const vendorShrinkageData = shrinkageResults.filter(shrinkage => 
+        shrinkage.vendorName === vendorName
+      );
+      
+      if (vendorShrinkageData.length > 0) {
+        // Check if both FRONT EPE and BACK EVA pass for this vendor
+        const frontEpeResult = vendorShrinkageData.find(item => 
+          item.encapsulantType === 'FRONT EPE'
+        );
+        const backEvaResult = vendorShrinkageData.find(item => 
+          item.encapsulantType === 'BACK EVA'
+        );
+        
+        let overallResult = 'FAIL';
+        
+        // Both FRONT EPE and BACK EVA must pass for overall pass
+        if (frontEpeResult && backEvaResult) {
+          if (frontEpeResult.finalStatus === 'PASS' && backEvaResult.finalStatus === 'PASS') {
+            overallResult = 'PASS';
+          }
+        } else if (frontEpeResult && frontEpeResult.finalStatus === 'PASS') {
+          // Only one type tested and it passed
+          overallResult = 'PASS';
+        } else if (backEvaResult && backEvaResult.finalStatus === 'PASS') {
+          // Only one type tested and it passed
+          overallResult = 'PASS';
+        }
+        
+        // Update the test result
+        testRow['TEST RESULT'] = overallResult;
+        testRow['SHRINKAGE_CALCULATION_DETAILS'] = {
+          frontEpe: frontEpeResult,
+          backEva: backEvaResult,
+          overallResult: overallResult
+        };
+      }
+    }
+    
+    return testRow;
+  });
+}
+
+
 // Improved file check function to provide more details
 function checkExcelFile(filename) {
   const excelFilePath = path.join(__dirname, 'data', filename);
@@ -360,7 +479,9 @@ function checkExcelFile(filename) {
   return fileInfo;
 }
 
-// API endpoint for test data - NOW WITH AUTHENTICATION
+// MODIFIED API endpoint for test data - WITH SHRINKAGE INTEGRATION
+// Replace the existing app.get('/api/test-data', ...) endpoint with this:
+
 app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
   try {
     const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
@@ -399,9 +520,7 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
         dateNF: 'yyyy-mm-dd',
         cellNF: true,
         cellStyles: true,
-        // Set type to 'binary' for better handling of large files
         type: 'binary',
-        // Force a reload of the file
         cache: false
       });
     } catch (readError) {
@@ -434,6 +553,58 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     const rawData = xlsx.utils.sheet_to_json(worksheet);
     console.log(`Processed ${rawData.length} rows from ${testDataSheetName} sheet`);
     
+    // Check for shrinkage tests and read Sheet1 if needed
+    const hasShrinkageTests = rawData.some(row => 
+      row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('SHRINKAGE')
+    );
+    
+    let shrinkageResults = [];
+    if (hasShrinkageTests) {
+      // Read Sheet1 for shrinkage data
+      const shrinkageSheetName = 'Sheet1';
+      const shrinkageSheet = workbook.Sheets[shrinkageSheetName];
+      
+      if (shrinkageSheet) {
+        console.log('Found shrinkage tests, reading Sheet1 for shrinkage data...');
+        const shrinkageRawData = xlsx.utils.sheet_to_json(shrinkageSheet);
+        
+        // Log the raw data structure for debugging
+        if (shrinkageRawData.length > 0) {
+          console.log('Sample shrinkage raw data structure:', Object.keys(shrinkageRawData[0]));
+          console.log('First shrinkage row:', shrinkageRawData[0]);
+        }
+        
+        // Filter out empty rows and header rows
+        const validShrinkageData = shrinkageRawData.filter(row => 
+          row['VENDOR NAME'] && 
+          row['ENCAPSULANT TYPE'] && 
+          (row['ENCAPSULANT TYPE'] === 'FRONT EPE' || row['ENCAPSULANT TYPE'] === 'BACK EVA')
+        );
+        
+        console.log(`Found ${validShrinkageData.length} valid shrinkage data rows`);
+        
+        if (validShrinkageData.length > 0) {
+          shrinkageResults = calculateShrinkageResults(validShrinkageData);
+          console.log(`Calculated shrinkage results for ${shrinkageResults.length} entries`);
+          
+          // Log calculated results for debugging
+          shrinkageResults.forEach((result, index) => {
+            if (index < 3) { // Log first 3 results for debugging
+              console.log(`Shrinkage result ${index + 1}:`, {
+                vendor: result.vendorName,
+                type: result.encapsulantType,
+                tdDiff: result.tdDifference,
+                mdDiff: result.mdDifference,
+                final: result.finalStatus
+              });
+            }
+          });
+        }
+      } else {
+        console.warn('Shrinkage tests found but Sheet1 not available for calculations');
+      }
+    }
+    
     // Read the Standard Test Times sheet for reference
     const standardsSheetName = 'Standard Test Times';
     const standardsSheet = workbook.Sheets[standardsSheetName];
@@ -449,7 +620,6 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     // Create a lookup for standard test durations from Excel data
     const standardDurations = {};
     standardsData.forEach(item => {
-      // Make sure to use the exact column headers from your Excel sheet
       const testName = item['TEST NAME'];
       const duration = item['STANDARD DURATION (DAYS)'];
       
@@ -467,18 +637,25 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
       }
     }
     
-    // Check for missing standard durations
-    const allTestNames = new Set(rawData.map(row => row['TEST NAME']).filter(Boolean));
-    const missingStandards = [...allTestNames].filter(test => standardDurations[test] === undefined);
-    if (missingStandards.length > 0) {
-      console.warn('Tests missing standard durations (will use default value):', missingStandards);
-    }
-    
     // Default duration if not found in either source
     const DEFAULT_STD_DURATION = 2; // 2 days
     
+    // Update test data with shrinkage results if available
+    let updatedRawData = rawData;
+    if (shrinkageResults.length > 0) {
+      updatedRawData = updateTestDataWithShrinkageResults(rawData, shrinkageResults);
+      console.log('Updated test data with shrinkage calculation results');
+      
+      // Log how many shrinkage tests were updated
+      const updatedShrinkageTests = updatedRawData.filter(row => 
+        row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('SHRINKAGE') && 
+        row['SHRINKAGE_CALCULATION_DETAILS']
+      );
+      console.log(`Updated ${updatedShrinkageTests.length} shrinkage test results`);
+    }
+    
     // Process the data to match the dashboard's expected format
-    const processedData = rawData.map((row, index) => {
+    const processedData = updatedRawData.map((row, index) => {
       const grnTimeValue = row['GRN GENERATION TIME'];
       const testStartValue = row['TEST START DATE AND TIME'];
       const testEndValue = row['TEST END DATE AND TIME'];
@@ -490,9 +667,9 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
       if (index < 5) {
         console.log(`Row ${index + 1}:`, {
           testName: row['TEST NAME'],
-          grnTime: grnTime ? grnTime.toISOString() : null,
-          startTime: startTime ? startTime.toISOString() : null,
-          endTime: endTime ? endTime.toISOString() : null,
+          vendor: row['VENDOR NAME'],
+          testResult: row['TEST RESULT'],
+          hasShrinkageDetails: !!row['SHRINKAGE_CALCULATION_DETAILS']
         });
       }
       
@@ -522,7 +699,8 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
         result: row['TEST RESULT'] || 'Pending',
         actualDuration: actualDuration,
         standardDuration: standardDuration,
-        efficiency: efficiency
+        efficiency: efficiency,
+        shrinkageDetails: row['SHRINKAGE_CALCULATION_DETAILS'] || null
       };
     });
     
@@ -939,6 +1117,138 @@ app.get('/api/chamber-data', authenticateMicrosoftToken, (req, res) => {
   }
 });
 
+// Separate API endpoint for detailed shrinkage test analysis - WITH AUTHENTICATION
+app.get('/api/shrinkage-tests', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/shrinkage-tests from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read the "Sheet1" for shrinkage data
+    const shrinkageSheetName = 'Sheet1';
+    const worksheet = workbook.Sheets[shrinkageSheetName];
+    if (!worksheet) {
+      return res.status(404).json({ 
+        error: `${shrinkageSheetName} sheet not found in Excel file`,
+        message: `Please add a "${shrinkageSheetName}" sheet to your Excel file with shrinkage test data.`,
+        availableSheets: workbook.SheetNames
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from ${shrinkageSheetName} sheet`);
+    
+    // Filter out empty rows and header rows
+    const validData = rawData.filter(row => 
+      row['VENDOR NAME'] && 
+      row['ENCAPSULANT TYPE'] && 
+      (row['ENCAPSULANT TYPE'] === 'FRONT EPE' || row['ENCAPSULANT TYPE'] === 'BACK EVA')
+    );
+    
+    if (validData.length === 0) {
+      return res.json({
+        data: [],
+        summary: {
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          passRate: 0
+        }
+      });
+    }
+    
+    // Process the data and calculate results
+    const processedData = calculateShrinkageResults(validData);
+    
+    // Calculate summary statistics
+    const totalTests = processedData.length;
+    const passedTests = processedData.filter(item => item.finalStatus === 'PASS').length;
+    const failedTests = totalTests - passedTests;
+    const passRate = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+    
+    // Group by vendor for additional insights
+    const vendorSummary = {};
+    processedData.forEach(item => {
+      if (!vendorSummary[item.vendorName]) {
+        vendorSummary[item.vendorName] = {
+          total: 0,
+          passed: 0,
+          failed: 0,
+          frontEpe: { total: 0, passed: 0 },
+          backEva: { total: 0, passed: 0 }
+        };
+      }
+      
+      const vendor = vendorSummary[item.vendorName];
+      vendor.total++;
+      
+      if (item.finalStatus === 'PASS') {
+        vendor.passed++;
+      } else {
+        vendor.failed++;
+      }
+      
+      // Track by encapsulant type
+      if (item.encapsulantType === 'FRONT EPE') {
+        vendor.frontEpe.total++;
+        if (item.finalStatus === 'PASS') vendor.frontEpe.passed++;
+      } else if (item.encapsulantType === 'BACK EVA') {
+        vendor.backEva.total++;
+        if (item.finalStatus === 'PASS') vendor.backEva.passed++;
+      }
+    });
+    
+    console.log(`Returning ${processedData.length} shrinkage test records with ${passedTests} passed and ${failedTests} failed`);
+    
+    res.json({
+      data: processedData,
+      summary: {
+        totalTests,
+        passedTests,
+        failedTests,
+        passRate
+      },
+      vendorSummary
+    });
+    
+  } catch (error) {
+    console.error('Error processing shrinkage tests request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process shrinkage tests request', 
+      details: error.message
+    });
+  }
+});
 // Fix for the api/solar-data endpoint - NOW WITH AUTHENTICATION
 app.get('/api/solar-data', authenticateMicrosoftToken, (req, res) => {
   console.log('Received request to /api/solar-data, redirecting to /api/test-data');
