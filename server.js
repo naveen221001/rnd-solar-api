@@ -338,26 +338,26 @@ const HARDCODED_STD_DURATIONS = {
 function calculateShrinkageResults(shrinkageData) {
   return shrinkageData.map((row, index) => {
     // Parse numeric values from your exact column structure
-    const td1WithoutHit = parseFloat(row['TD1']) || 0; // Column C
-    const td2WithoutHit = parseFloat(row['TD2']) || 0; // Column D  
-    const md1WithoutHit = parseFloat(row['MD1']) || 0; // Column E
-    const md2WithoutHit = parseFloat(row['MD2']) || 0; // Column F
+    const td1WithoutHeat = parseFloat(row['TD1']) || 0; // Column C
+    const td2WithoutHeat = parseFloat(row['TD2']) || 0; // Column D  
+    const md1WithoutHeat = parseFloat(row['MD1']) || 0; // Column E
+    const md2WithoutHeat = parseFloat(row['MD2']) || 0; // Column F
     
-    // Handle WITH HIT columns (Excel may add __1 suffix for duplicate headers)
-    const td1WithHit = parseFloat(row['TD1__1'] || row['TD1_1'] || row['Column7']) || 0; // Column G
-    const td2WithHit = parseFloat(row['TD2__1'] || row['TD2_1'] || row['Column8']) || 0; // Column H
-    const md1WithHit = parseFloat(row['MD1__1'] || row['MD1_1'] || row['Column9']) || 0; // Column I
-    const md2WithHit = parseFloat(row['MD2__1'] || row['MD2_1'] || row['Column10']) || 0; // Column J
+    // Handle WITH Heat columns (Excel may add __1 suffix for duplicate headers)
+    const td1WithHeat = parseFloat(row['TD1__1'] || row['TD1_1'] || row['Column7']) || 0; // Column G
+    const td2WithHeat = parseFloat(row['TD2__1'] || row['TD2_1'] || row['Column8']) || 0; // Column H
+    const md1WithHeat = parseFloat(row['MD1__1'] || row['MD1_1'] || row['Column9']) || 0; // Column I
+    const md2WithHeat = parseFloat(row['MD2__1'] || row['MD2_1'] || row['Column10']) || 0; // Column J
     
     // Calculate means
-    const tdMeanWithoutHit = (td1WithoutHit + td2WithoutHit) / 2;
-    const tdMeanWithHit = (td1WithHit + td2WithHit) / 2;
-    const mdMeanWithoutHit = (md1WithoutHit + md2WithoutHit) / 2;
-    const mdMeanWithHit = (md1WithHit + md2WithHit) / 2;
+    const tdMeanWithoutHeat = (td1WithoutHeat + td2WithoutHeat) / 2;
+    const tdMeanWithHeat = (td1WithHeat + td2WithHeat) / 2;
+    const mdMeanWithoutHeat = (md1WithoutHeat + md2WithoutHeat) / 2;
+    const mdMeanWithHeat = (md1WithHeat + md2WithHeat) / 2;
     
     // Calculate absolute differences
-    const tdDifference = Math.abs(tdMeanWithHit - tdMeanWithoutHit);
-    const mdDifference = Math.abs(mdMeanWithHit - mdMeanWithoutHit);
+    const tdDifference = Math.abs(tdMeanWithHeat - tdMeanWithoutHeat);
+    const mdDifference = Math.abs(mdMeanWithHeat - mdMeanWithoutHeat);
     
     // Determine pass/fail status (less than 1% = pass)
     const tdStatus = tdDifference < 1.0 ? 'PASS' : 'FAIL';
@@ -372,20 +372,20 @@ function calculateShrinkageResults(shrinkageData) {
       encapsulantType: row['ENCAPSULANT TYPE'] || '',
       
       // Raw values
-      td1WithoutHit,
-      td2WithoutHit,
-      md1WithoutHit,
-      md2WithoutHit,
-      td1WithHit,
-      td2WithHit,
-      md1WithHit,
-      md2WithHit,
+      td1WithoutHeat,
+      td2WithoutHeat,
+      md1WithoutHeat,
+      md2WithoutHeat,
+      td1WithHeat,
+      td2WithHeat,
+      md1WithHeat,
+      md2WithHeat,
       
       // Calculated values
-      tdMeanWithoutHit: Math.round(tdMeanWithoutHit * 100) / 100,
-      tdMeanWithHit: Math.round(tdMeanWithHit * 100) / 100,
-      mdMeanWithoutHit: Math.round(mdMeanWithoutHit * 100) / 100,
-      mdMeanWithHit: Math.round(mdMeanWithHit * 100) / 100,
+      tdMeanWithoutHeat: Math.round(tdMeanWithoutHeat * 100) / 100,
+      tdMeanWithHeat: Math.round(tdMeanWithHeat * 100) / 100,
+      mdMeanWithoutHeat: Math.round(mdMeanWithoutHeat * 100) / 100,
+      mdMeanWithHeat: Math.round(mdMeanWithHeat * 100) / 100,
       
       // Differences
       tdDifference: Math.round(tdDifference * 100) / 100,
