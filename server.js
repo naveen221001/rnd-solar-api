@@ -570,6 +570,108 @@ function updateTestDataWithAdhesionResults(testData, adhesionResults) {
 }
 
 
+// Add this function after the calculateAdhesionResults function in server.js
+
+// Function to calculate tensile strength test results from Tensile Strength sheet
+function calculateTensileStrengthResults(tensileData) {
+  return tensileData.map((row, index) => {
+    // Parse values from the Tensile Strength sheet columns
+    const vendorName = row['VENDOR NAME'] || '';
+    const bom = row['BOM'] || '';
+    
+    // Parse Break value (Column C - should be > 10 MPa)
+    const breakValue = parseFloat(row['BREAK']) || 0;
+    
+    // Parse Change in Elongation % (Column D)
+    let changeInElongationPercent = parseFloat(row['CHANGE IN ELONGATION %']) || 0;
+    
+    // Check if we have initial and final length values instead
+    const initialLength = parseFloat(row['INITIAL LENGTH'] || row['Column5']) || 0;
+    const finalLength = parseFloat(row['FINAL LENGTH'] || row['Column6']) || 0;
+    
+    // Calculate elongation % if initial and final lengths are provided
+    if (initialLength > 0 && finalLength > 0 && changeInElongationPercent === 0) {
+      changeInElongationPercent = ((finalLength - initialLength) * 100) / initialLength;
+      console.log(`Calculated elongation % for ${vendorName}: ${changeInElongationPercent}% (Initial: ${initialLength}, Final: ${finalLength})`);
+    }
+    
+    // Apply pass/fail criteria
+    const breakStatus = breakValue > 10 ? 'PASS' : 'FAIL';
+    const elongationStatus = changeInElongationPercent >= 450 ? 'PASS' : 'FAIL';
+    
+    // Final status: PASS only if BOTH break and elongation pass
+    const finalStatus = (breakStatus === 'PASS' && elongationStatus === 'PASS') ? 'PASS' : 'FAIL';
+    
+    return {
+      id: index + 1,
+      vendorName,
+      bom,
+      
+      // Raw values
+      breakValue: Math.round(breakValue * 100) / 100,
+      changeInElongationPercent: Math.round(changeInElongationPercent * 100) / 100,
+      initialLength: initialLength > 0 ? Math.round(initialLength * 100) / 100 : null,
+      finalLength: finalLength > 0 ? Math.round(finalLength * 100) / 100 : null,
+      
+      // Individual status
+      breakStatus,
+      elongationStatus,
+      
+      // Criteria info
+      breakCriteria: '> 10 MPa',
+      elongationCriteria: '>= 450%',
+      
+      // Final status
+      finalStatus
+    };
+  });
+}
+
+// Function to update test results in Test Data based on tensile strength results
+function updateTestDataWithTensileStrengthResults(testData, tensileResults) {
+  return testData.map(testRow => {
+    // Check if this is a tensile strength test
+    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('TENSILE')) {
+      const vendorName = testRow['VENDOR NAME'];
+      const bomType = testRow['BOM'];
+      
+      // Find matching tensile strength results for this vendor and BOM
+      const tensileResult = tensileResults.find(result => 
+        result.vendorName === vendorName && result.bom === bomType
+      );
+      
+      if (tensileResult) {
+        // Update the test result
+        testRow['TEST RESULT'] = tensileResult.finalStatus;
+        testRow['TENSILE_CALCULATION_DETAILS'] = {
+          break: {
+            value: tensileResult.breakValue,
+            status: tensileResult.breakStatus,
+            criteria: tensileResult.breakCriteria
+          },
+          elongation: {
+            percent: tensileResult.changeInElongationPercent,
+            status: tensileResult.elongationStatus,
+            criteria: tensileResult.elongationCriteria,
+            calculationMethod: tensileResult.initialLength && tensileResult.finalLength ? 
+              'Calculated from lengths' : 'Direct percentage'
+          },
+          overallResult: tensileResult.finalStatus
+        };
+        
+        // Add length details if available
+        if (tensileResult.initialLength && tensileResult.finalLength) {
+          testRow['TENSILE_CALCULATION_DETAILS'].elongation.initialLength = tensileResult.initialLength;
+          testRow['TENSILE_CALCULATION_DETAILS'].elongation.finalLength = tensileResult.finalLength;
+        }
+      }
+    }
+    
+    return testRow;
+  });
+}
+
+
 // Improved file check function to provide more details
 function checkExcelFile(filename) {
   const excelFilePath = path.join(__dirname, 'data', filename);
@@ -780,6 +882,61 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     }
 
 
+    // Add this section to the main /api/test-data endpoint after the adhesion section:
+
+// Check for tensile strength tests and read Tensile Strength sheet if needed
+const hasTensileStrengthTests = rawData.some(row => 
+  row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('TENSILE')
+);
+
+let tensileStrengthResults = [];
+if (hasTensileStrengthTests) {
+  // Read Tensile Strength sheet for tensile data
+  const tensileStrengthSheetName = 'Tensile Strength';
+  const tensileStrengthSheet = workbook.Sheets[tensileStrengthSheetName];
+  
+  if (tensileStrengthSheet) {
+    console.log('Found tensile strength tests, reading Tensile Strength sheet for tensile data...');
+    const tensileStrengthRawData = xlsx.utils.sheet_to_json(tensileStrengthSheet);
+    
+    // Log the raw data structure for debugging
+    if (tensileStrengthRawData.length > 0) {
+      console.log('Sample tensile strength raw data structure:', Object.keys(tensileStrengthRawData[0]));
+      console.log('First tensile strength row:', tensileStrengthRawData[0]);
+    }
+    
+    // Filter out empty rows and header rows
+    const validTensileStrengthData = tensileStrengthRawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    console.log(`Found ${validTensileStrengthData.length} valid tensile strength data rows`);
+    
+    if (validTensileStrengthData.length > 0) {
+      tensileStrengthResults = calculateTensileStrengthResults(validTensileStrengthData);
+      console.log(`Calculated tensile strength results for ${tensileStrengthResults.length} entries`);
+      
+      // Log calculated results for debugging
+      tensileStrengthResults.forEach((result, index) => {
+        if (index < 3) { // Log first 3 results for debugging
+          console.log(`Tensile strength result ${index + 1}:`, {
+            vendor: result.vendorName,
+            bom: result.bom,
+            breakValue: result.breakValue,
+            breakStatus: result.breakStatus,
+            elongationPercent: result.changeInElongationPercent,
+            elongationStatus: result.elongationStatus,
+            final: result.finalStatus
+          });
+        }
+      });
+    }
+  } else {
+    console.warn('Tensile strength tests found but Tensile Strength sheet not available for calculations');
+  }
+}
+
+
     
     // Read the Standard Test Times sheet for reference
     const standardsSheetName = 'Standard Test Times';
@@ -844,6 +1001,22 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
       );
       console.log(`Updated ${updatedAdhesionTests.length} adhesion test results`);
     }
+
+
+    // And add this section after the adhesion update section:
+
+// Update test data with tensile strength results if available
+if (tensileStrengthResults.length > 0) {
+  updatedRawData = updateTestDataWithTensileStrengthResults(updatedRawData, tensileStrengthResults);
+  console.log('Updated test data with tensile strength calculation results');
+  
+  // Log how many tensile strength tests were updated
+  const updatedTensileStrengthTests = updatedRawData.filter(row => 
+    row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('TENSILE') && 
+    row['TENSILE_CALCULATION_DETAILS']
+  );
+  console.log(`Updated ${updatedTensileStrengthTests.length} tensile strength test results`);
+}
     
     // Process the data to match the dashboard's expected format
     const processedData = updatedRawData.map((row, index) => {
