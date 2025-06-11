@@ -449,6 +449,126 @@ function updateTestDataWithShrinkageResults(testData, shrinkageResults) {
   });
 }
 
+// Add this function after the calculateShrinkageResults function in server.js
+
+// Function to calculate adhesion test results from Adhesion sheet
+function calculateAdhesionResults(adhesionData) {
+  return adhesionData.map((row, index) => {
+    // Parse values from the Adhesion sheet columns
+    const vendorName = row['VENDOR NAME'] || '';
+    const bom = row['BOM'] || '';
+    
+    // PRE PCT values (Columns C-F)
+    const prePctGlassToEncapMax = parseFloat(row['max'] || row['Column3']) || 0;      // Column C
+    const prePctGlassToEncapMin = parseFloat(row['min'] || row['Column4']) || 0;      // Column D  
+    const prePctBacksheetToEncapMax = parseFloat(row['max__1'] || row['Column5']) || 0; // Column E
+    const prePctBacksheetToEncapMin = parseFloat(row['min__1'] || row['Column6']) || 0; // Column F
+    
+    // POST PCT values (Columns G-J)
+    const postPctGlassToEncapMax = parseFloat(row['max__2'] || row['Column7']) || 0;     // Column G
+    const postPctGlassToEncapMin = parseFloat(row['min__2'] || row['Column8']) || 0;     // Column H
+    const postPctBacksheetToEncapMax = parseFloat(row['max__3'] || row['Column9']) || 0; // Column I
+    const postPctBacksheetToEncapMin = parseFloat(row['min__3'] || row['Column10']) || 0; // Column J
+    
+    // Calculate averages for each category
+    const prePctGlassToEncapAvg = (prePctGlassToEncapMax + prePctGlassToEncapMin) / 2;
+    const prePctBacksheetToEncapAvg = (prePctBacksheetToEncapMax + prePctBacksheetToEncapMin) / 2;
+    const postPctGlassToEncapAvg = (postPctGlassToEncapMax + postPctGlassToEncapMin) / 2;
+    const postPctBacksheetToEncapAvg = (postPctBacksheetToEncapMax + postPctBacksheetToEncapMin) / 2;
+    
+    // Apply pass/fail criteria
+    const prePctGlassToEncapStatus = prePctGlassToEncapAvg > 60 ? 'PASS' : 'FAIL';
+    const prePctBacksheetToEncapStatus = prePctBacksheetToEncapAvg > 40 ? 'PASS' : 'FAIL';
+    const postPctGlassToEncapStatus = postPctGlassToEncapAvg > 60 ? 'PASS' : 'FAIL';
+    const postPctBacksheetToEncapStatus = postPctBacksheetToEncapAvg > 40 ? 'PASS' : 'FAIL';
+    
+    // Final status: PASS only if ALL four pass
+    const finalStatus = (
+      prePctGlassToEncapStatus === 'PASS' && 
+      prePctBacksheetToEncapStatus === 'PASS' && 
+      postPctGlassToEncapStatus === 'PASS' && 
+      postPctBacksheetToEncapStatus === 'PASS'
+    ) ? 'PASS' : 'FAIL';
+    
+    return {
+      id: index + 1,
+      vendorName,
+      bom,
+      
+      // Raw values
+      prePctGlassToEncapMax,
+      prePctGlassToEncapMin,
+      prePctBacksheetToEncapMax,
+      prePctBacksheetToEncapMin,
+      postPctGlassToEncapMax,
+      postPctGlassToEncapMin,
+      postPctBacksheetToEncapMax,
+      postPctBacksheetToEncapMin,
+      
+      // Calculated averages
+      prePctGlassToEncapAvg: Math.round(prePctGlassToEncapAvg * 100) / 100,
+      prePctBacksheetToEncapAvg: Math.round(prePctBacksheetToEncapAvg * 100) / 100,
+      postPctGlassToEncapAvg: Math.round(postPctGlassToEncapAvg * 100) / 100,
+      postPctBacksheetToEncapAvg: Math.round(postPctBacksheetToEncapAvg * 100) / 100,
+      
+      // Individual status
+      prePctGlassToEncapStatus,
+      prePctBacksheetToEncapStatus,
+      postPctGlassToEncapStatus,
+      postPctBacksheetToEncapStatus,
+      
+      // Final status
+      finalStatus
+    };
+  });
+}
+
+// Function to update test results in Test Data based on adhesion results
+function updateTestDataWithAdhesionResults(testData, adhesionResults) {
+  return testData.map(testRow => {
+    // Check if this is an adhesion test
+    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('ADHESION')) {
+      const vendorName = testRow['VENDOR NAME'];
+      const bomType = testRow['BOM'];
+      
+      // Find matching adhesion results for this vendor and BOM
+      const adhesionResult = adhesionResults.find(result => 
+        result.vendorName === vendorName && result.bom === bomType
+      );
+      
+      if (adhesionResult) {
+        // Update the test result
+        testRow['TEST RESULT'] = adhesionResult.finalStatus;
+        testRow['ADHESION_CALCULATION_DETAILS'] = {
+          prePctGlassToEncap: {
+            avg: adhesionResult.prePctGlassToEncapAvg,
+            status: adhesionResult.prePctGlassToEncapStatus,
+            criteria: '> 60'
+          },
+          prePctBacksheetToEncap: {
+            avg: adhesionResult.prePctBacksheetToEncapAvg,
+            status: adhesionResult.prePctBacksheetToEncapStatus,
+            criteria: '> 40'
+          },
+          postPctGlassToEncap: {
+            avg: adhesionResult.postPctGlassToEncapAvg,
+            status: adhesionResult.postPctGlassToEncapStatus,
+            criteria: '> 60'
+          },
+          postPctBacksheetToEncap: {
+            avg: adhesionResult.postPctBacksheetToEncapAvg,
+            status: adhesionResult.postPctBacksheetToEncapStatus,
+            criteria: '> 40'
+          },
+          overallResult: adhesionResult.finalStatus
+        };
+      }
+    }
+    
+    return testRow;
+  });
+}
+
 
 // Improved file check function to provide more details
 function checkExcelFile(filename) {
@@ -604,6 +724,62 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
         console.warn('Shrinkage tests found but Sheet1 not available for calculations');
       }
     }
+
+    // Add this section after the shrinkage calculation section in the /api/test-data endpoint:
+
+    // Check for adhesion tests and read Adhesion sheet if needed
+    const hasAdhesionTests = rawData.some(row => 
+      row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('ADHESION')
+    );
+    
+    let adhesionResults = [];
+    if (hasAdhesionTests) {
+      // Read Adhesion sheet for adhesion data
+      const adhesionSheetName = 'Adhesion';
+      const adhesionSheet = workbook.Sheets[adhesionSheetName];
+      
+      if (adhesionSheet) {
+        console.log('Found adhesion tests, reading Adhesion sheet for adhesion data...');
+        const adhesionRawData = xlsx.utils.sheet_to_json(adhesionSheet);
+        
+        // Log the raw data structure for debugging
+        if (adhesionRawData.length > 0) {
+          console.log('Sample adhesion raw data structure:', Object.keys(adhesionRawData[0]));
+          console.log('First adhesion row:', adhesionRawData[0]);
+        }
+        
+        // Filter out empty rows and header rows
+        const validAdhesionData = adhesionRawData.filter(row => 
+          row['VENDOR NAME'] && row['BOM']
+        );
+        
+        console.log(`Found ${validAdhesionData.length} valid adhesion data rows`);
+        
+        if (validAdhesionData.length > 0) {
+          adhesionResults = calculateAdhesionResults(validAdhesionData);
+          console.log(`Calculated adhesion results for ${adhesionResults.length} entries`);
+          
+          // Log calculated results for debugging
+          adhesionResults.forEach((result, index) => {
+            if (index < 3) { // Log first 3 results for debugging
+              console.log(`Adhesion result ${index + 1}:`, {
+                vendor: result.vendorName,
+                bom: result.bom,
+                prePctGlassAvg: result.prePctGlassToEncapAvg,
+                prePctBacksheetAvg: result.prePctBacksheetToEncapAvg,
+                postPctGlassAvg: result.postPctGlassToEncapAvg,
+                postPctBacksheetAvg: result.postPctBacksheetToEncapAvg,
+                final: result.finalStatus
+              });
+            }
+          });
+        }
+      } else {
+        console.warn('Adhesion tests found but Adhesion sheet not available for calculations');
+      }
+    }
+
+
     
     // Read the Standard Test Times sheet for reference
     const standardsSheetName = 'Standard Test Times';
@@ -652,6 +828,21 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
         row['SHRINKAGE_CALCULATION_DETAILS']
       );
       console.log(`Updated ${updatedShrinkageTests.length} shrinkage test results`);
+    }
+
+    // And add this after the shrinkage update section:
+
+    // Update test data with adhesion results if available
+    if (adhesionResults.length > 0) {
+      updatedRawData = updateTestDataWithAdhesionResults(updatedRawData, adhesionResults);
+      console.log('Updated test data with adhesion calculation results');
+      
+      // Log how many adhesion tests were updated
+      const updatedAdhesionTests = updatedRawData.filter(row => 
+        row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('ADHESION') && 
+        row['ADHESION_CALCULATION_DETAILS']
+      );
+      console.log(`Updated ${updatedAdhesionTests.length} adhesion test results`);
     }
     
     // Process the data to match the dashboard's expected format
