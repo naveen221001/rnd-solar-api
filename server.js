@@ -2277,6 +2277,706 @@ app.get('/api/shrinkage-tests', authenticateMicrosoftToken, (req, res) => {
     });
   }
 });
+
+// Add these API endpoints to your server.js file
+
+// API endpoint for detailed adhesion test analysis - WITH AUTHENTICATION
+app.get('/api/adhesion-tests', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/adhesion-tests from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read the "Adhesion" sheet
+    const adhesionSheetName = 'Adhesion';
+    const worksheet = workbook.Sheets[adhesionSheetName];
+    if (!worksheet) {
+      return res.status(404).json({ 
+        error: `${adhesionSheetName} sheet not found in Excel file`,
+        message: `Please add an "${adhesionSheetName}" sheet to your Excel file with adhesion test data.`,
+        availableSheets: workbook.SheetNames
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from ${adhesionSheetName} sheet`);
+    
+    // Filter out empty rows
+    const validData = rawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    if (validData.length === 0) {
+      return res.json({
+        data: [],
+        summary: {
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          passRate: 0
+        }
+      });
+    }
+    
+    // Process the data and calculate results
+    const processedData = calculateAdhesionResults(validData);
+    
+    // Calculate summary statistics
+    const totalTests = processedData.length;
+    const passedTests = processedData.filter(item => item.finalStatus === 'PASS').length;
+    const failedTests = totalTests - passedTests;
+    const passRate = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+    
+    // Group by vendor for additional insights
+    const vendorSummary = {};
+    processedData.forEach(item => {
+      if (!vendorSummary[item.vendorName]) {
+        vendorSummary[item.vendorName] = {
+          total: 0,
+          passed: 0,
+          failed: 0
+        };
+      }
+      
+      const vendor = vendorSummary[item.vendorName];
+      vendor.total++;
+      
+      if (item.finalStatus === 'PASS') {
+        vendor.passed++;
+      } else {
+        vendor.failed++;
+      }
+    });
+    
+    console.log(`Returning ${processedData.length} adhesion test records with ${passedTests} passed and ${failedTests} failed`);
+    
+    res.json({
+      data: processedData,
+      summary: {
+        totalTests,
+        passedTests,
+        failedTests,
+        passRate
+      },
+      vendorSummary
+    });
+    
+  } catch (error) {
+    console.error('Error processing adhesion tests request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process adhesion tests request', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint for detailed tensile strength test analysis - WITH AUTHENTICATION
+app.get('/api/tensile-tests', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/tensile-tests from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read the "Tensile Strength" sheet
+    // Read the "Tensile Strength" sheet
+    const tensileSheetName = 'Tensile Strength';
+    const worksheet = workbook.Sheets[tensileSheetName];
+    if (!worksheet) {
+      return res.status(404).json({ 
+        error: `${tensileSheetName} sheet not found in Excel file`,
+        message: `Please add a "${tensileSheetName}" sheet to your Excel file with tensile test data.`,
+        availableSheets: workbook.SheetNames
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from ${tensileSheetName} sheet`);
+    
+    // Filter out empty rows
+    const validData = rawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    if (validData.length === 0) {
+      return res.json({
+        data: [],
+        summary: {
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          passRate: 0
+        }
+      });
+    }
+    
+    // Process the data and calculate results
+    const processedData = calculateTensileStrengthResults(validData);
+    
+    // Calculate summary statistics
+    const totalTests = processedData.length;
+    const passedTests = processedData.filter(item => item.finalStatus === 'PASS').length;
+    const failedTests = totalTests - passedTests;
+    const passRate = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+    
+    // Group by vendor for additional insights
+    const vendorSummary = {};
+    processedData.forEach(item => {
+      if (!vendorSummary[item.vendorName]) {
+        vendorSummary[item.vendorName] = {
+          total: 0,
+          passed: 0,
+          failed: 0,
+          avgBreakValue: 0,
+          avgElongation: 0
+        };
+      }
+      
+      const vendor = vendorSummary[item.vendorName];
+      vendor.total++;
+      vendor.avgBreakValue += item.breakValue;
+      vendor.avgElongation += item.changeInElongationPercent;
+      
+      if (item.finalStatus === 'PASS') {
+        vendor.passed++;
+      } else {
+        vendor.failed++;
+      }
+    });
+    
+    // Calculate averages
+    Object.keys(vendorSummary).forEach(vendor => {
+      vendorSummary[vendor].avgBreakValue = (vendorSummary[vendor].avgBreakValue / vendorSummary[vendor].total).toFixed(2);
+      vendorSummary[vendor].avgElongation = (vendorSummary[vendor].avgElongation / vendorSummary[vendor].total).toFixed(2);
+    });
+    
+    console.log(`Returning ${processedData.length} tensile test records with ${passedTests} passed and ${failedTests} failed`);
+    
+    res.json({
+      data: processedData,
+      summary: {
+        totalTests,
+        passedTests,
+        failedTests,
+        passRate
+      },
+      vendorSummary
+    });
+    
+  } catch (error) {
+    console.error('Error processing tensile tests request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process tensile tests request', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint for detailed GSM test analysis - WITH AUTHENTICATION
+app.get('/api/gsm-tests', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/gsm-tests from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read the "GSM" sheet
+    const gsmSheetName = 'GSM';
+    const worksheet = workbook.Sheets[gsmSheetName];
+    if (!worksheet) {
+      return res.status(404).json({ 
+        error: `${gsmSheetName} sheet not found in Excel file`,
+        message: `Please add a "${gsmSheetName}" sheet to your Excel file with GSM test data.`,
+        availableSheets: workbook.SheetNames
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from ${gsmSheetName} sheet`);
+    
+    // Filter out empty rows
+    const validData = rawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    if (validData.length === 0) {
+      return res.json({
+        data: [],
+        summary: {
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          passRate: 0
+        }
+      });
+    }
+    
+    // Process the data and calculate results
+    const processedData = calculateGSMResults(validData);
+    
+    // Calculate summary statistics
+    const totalTests = processedData.length;
+    const passedTests = processedData.filter(item => item.finalStatus === 'PASS').length;
+    const failedTests = totalTests - passedTests;
+    const passRate = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+    
+    // Group by vendor and category
+    const vendorSummary = {};
+    const categorySummary = { OLD: { total: 0, passed: 0 }, NEW: { total: 0, passed: 0 } };
+    
+    processedData.forEach(item => {
+      if (!vendorSummary[item.vendorName]) {
+        vendorSummary[item.vendorName] = {
+          total: 0,
+          passed: 0,
+          failed: 0,
+          avgValue: 0
+        };
+      }
+      
+      const vendor = vendorSummary[item.vendorName];
+      vendor.total++;
+      vendor.avgValue += item.average;
+      
+      if (item.finalStatus === 'PASS') {
+        vendor.passed++;
+      } else {
+        vendor.failed++;
+      }
+      
+      // Category summary
+      const category = item.category.toUpperCase().includes('OLD') ? 'OLD' : 'NEW';
+      categorySummary[category].total++;
+      if (item.finalStatus === 'PASS') {
+        categorySummary[category].passed++;
+      }
+    });
+    
+    // Calculate averages
+    Object.keys(vendorSummary).forEach(vendor => {
+      vendorSummary[vendor].avgValue = (vendorSummary[vendor].avgValue / vendorSummary[vendor].total).toFixed(2);
+    });
+    
+    console.log(`Returning ${processedData.length} GSM test records with ${passedTests} passed and ${failedTests} failed`);
+    
+    res.json({
+      data: processedData,
+      summary: {
+        totalTests,
+        passedTests,
+        failedTests,
+        passRate
+      },
+      vendorSummary,
+      categorySummary
+    });
+    
+  } catch (error) {
+    console.error('Error processing GSM tests request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process GSM tests request', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint for detailed resistance test analysis - WITH AUTHENTICATION
+app.get('/api/resistance-tests', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/resistance-tests from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read the "Resistance" sheet
+    const resistanceSheetName = 'Resistance';
+    const worksheet = workbook.Sheets[resistanceSheetName];
+    if (!worksheet) {
+      return res.status(404).json({ 
+        error: `${resistanceSheetName} sheet not found in Excel file`,
+        message: `Please add a "${resistanceSheetName}" sheet to your Excel file with resistance test data.`,
+        availableSheets: workbook.SheetNames
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from ${resistanceSheetName} sheet`);
+    
+    // Filter out empty rows
+    const validData = rawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM'] && row['TYPE']
+    );
+    
+    if (validData.length === 0) {
+      return res.json({
+        data: [],
+        summary: {
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          pendingTests: 0,
+          passRate: 0
+        }
+      });
+    }
+    
+    // Process the data and calculate results
+    const processedData = processResistanceResults(validData);
+    
+    // Calculate summary statistics
+    const totalTests = processedData.length;
+    const passedTests = processedData.filter(item => item.testResult === 'PASS').length;
+    const failedTests = processedData.filter(item => item.testResult === 'FAIL').length;
+    const pendingTests = processedData.filter(item => item.testResult === 'Pending').length;
+    const passRate = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+    
+    // Group by vendor and ribbon type
+    const vendorSummary = {};
+    const ribbonTypeSummary = { 
+      'BUS RIBBON': { total: 0, passed: 0, failed: 0, pending: 0 }, 
+      'INTERCONNECT RIBBON': { total: 0, passed: 0, failed: 0, pending: 0 } 
+    };
+    
+    processedData.forEach(item => {
+      if (!vendorSummary[item.vendorName]) {
+        vendorSummary[item.vendorName] = {
+          total: 0,
+          passed: 0,
+          failed: 0,
+          pending: 0,
+          busRibbon: { total: 0, passed: 0 },
+          interconnectRibbon: { total: 0, passed: 0 }
+        };
+      }
+      
+      const vendor = vendorSummary[item.vendorName];
+      vendor.total++;
+      
+      if (item.testResult === 'PASS') {
+        vendor.passed++;
+      } else if (item.testResult === 'FAIL') {
+        vendor.failed++;
+      } else {
+        vendor.pending++;
+      }
+      
+      // Ribbon type summary
+      if (item.type.includes('BUS')) {
+        vendor.busRibbon.total++;
+        ribbonTypeSummary['BUS RIBBON'].total++;
+        if (item.testResult === 'PASS') {
+          vendor.busRibbon.passed++;
+          ribbonTypeSummary['BUS RIBBON'].passed++;
+        } else if (item.testResult === 'FAIL') {
+          ribbonTypeSummary['BUS RIBBON'].failed++;
+        } else {
+          ribbonTypeSummary['BUS RIBBON'].pending++;
+        }
+      } else if (item.type.includes('INTERCONNECT')) {
+        vendor.interconnectRibbon.total++;
+        ribbonTypeSummary['INTERCONNECT RIBBON'].total++;
+        if (item.testResult === 'PASS') {
+          vendor.interconnectRibbon.passed++;
+          ribbonTypeSummary['INTERCONNECT RIBBON'].passed++;
+        } else if (item.testResult === 'FAIL') {
+          ribbonTypeSummary['INTERCONNECT RIBBON'].failed++;
+        } else {
+          ribbonTypeSummary['INTERCONNECT RIBBON'].pending++;
+        }
+      }
+    });
+    
+    console.log(`Returning ${processedData.length} resistance test records with ${passedTests} passed, ${failedTests} failed, and ${pendingTests} pending`);
+    
+    res.json({
+      data: processedData,
+      summary: {
+        totalTests,
+        passedTests,
+        failedTests,
+        pendingTests,
+        passRate
+      },
+      vendorSummary,
+      ribbonTypeSummary
+    });
+    
+  } catch (error) {
+    console.error('Error processing resistance tests request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process resistance tests request', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint for detailed bypass diode test analysis - WITH AUTHENTICATION
+app.get('/api/bypass-tests', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/bypass-tests from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Excel file not found',
+        message: 'The Excel file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read the "BYPASS DIODE TEST" sheet
+    const bypassSheetName = 'BYPASS DIODE TEST';
+    const worksheet = workbook.Sheets[bypassSheetName];
+    if (!worksheet) {
+      return res.status(404).json({ 
+        error: `${bypassSheetName} sheet not found in Excel file`,
+        message: `Please add a "${bypassSheetName}" sheet to your Excel file with bypass diode test data.`,
+        availableSheets: workbook.SheetNames
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from ${bypassSheetName} sheet`);
+    
+    // Filter out empty rows
+    const validData = rawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    if (validData.length === 0) {
+      return res.json({
+        data: [],
+        summary: {
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          pendingTests: 0,
+          passRate: 0,
+          avgTemperature: 0
+        }
+      });
+    }
+    
+    // Process the data and calculate results
+    const processedData = processBypassDiodeResults(validData);
+    
+    // Calculate summary statistics
+    const totalTests = processedData.length;
+    const passedTests = processedData.filter(item => item.testResult === 'PASS').length;
+    const failedTests = processedData.filter(item => item.testResult === 'FAIL').length;
+    const pendingTests = processedData.filter(item => item.testResult === 'Pending').length;
+    const passRate = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+    
+    // Calculate average temperature
+    const validTemperatures = processedData.filter(item => item.hasValidTemperature);
+    const avgTemperature = validTemperatures.length > 0 ? 
+      (validTemperatures.reduce((sum, item) => sum + item.maxTemperatureTj, 0) / validTemperatures.length).toFixed(2) : 0;
+    
+    // Group by vendor
+    const vendorSummary = {};
+    processedData.forEach(item => {
+      if (!vendorSummary[item.vendorName]) {
+        vendorSummary[item.vendorName] = {
+          total: 0,
+          passed: 0,
+          failed: 0,
+          pending: 0,
+          avgTemperature: 0,
+          tempCount: 0
+        };
+      }
+      
+      const vendor = vendorSummary[item.vendorName];
+      vendor.total++;
+      
+      if (item.testResult === 'PASS') {
+        vendor.passed++;
+      } else if (item.testResult === 'FAIL') {
+        vendor.failed++;
+      } else {
+        vendor.pending++;
+      }
+      
+      if (item.hasValidTemperature) {
+        vendor.avgTemperature += item.maxTemperatureTj;
+        vendor.tempCount++;
+      }
+    });
+    
+    // Calculate vendor average temperatures
+    Object.keys(vendorSummary).forEach(vendor => {
+      if (vendorSummary[vendor].tempCount > 0) {
+        vendorSummary[vendor].avgTemperature = (vendorSummary[vendor].avgTemperature / vendorSummary[vendor].tempCount).toFixed(2);
+      }
+    });
+    
+    console.log(`Returning ${processedData.length} bypass diode test records with ${passedTests} passed, ${failedTests} failed, and ${pendingTests} pending`);
+    
+    res.json({
+      data: processedData,
+      summary: {
+        totalTests,
+        passedTests,
+        failedTests,
+        pendingTests,
+        passRate,
+        avgTemperature
+      },
+      vendorSummary
+    });
+    
+  } catch (error) {
+    console.error('Error processing bypass diode tests request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process bypass diode tests request', 
+      details: error.message
+    });
+  }
+});
+
+// Add these endpoints before your existing endpoints in server.js
+// Make sure to add them after all the calculation functions are defined
+
 // Fix for the api/solar-data endpoint - NOW WITH AUTHENTICATION
 app.get('/api/solar-data', authenticateMicrosoftToken, (req, res) => {
   console.log('Received request to /api/solar-data, redirecting to /api/test-data');
