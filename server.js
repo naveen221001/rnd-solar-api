@@ -671,6 +671,437 @@ function updateTestDataWithTensileStrengthResults(testData, tensileResults) {
   });
 }
 
+// Function to calculate GSM test results from GSM sheet
+function calculateGSMResults(gsmData) {
+  return gsmData.map((row, index) => {
+    // Parse values from the GSM sheet columns
+    const vendorName = row['VENDOR NAME'] || '';
+    const bom = row['BOM'] || '';
+    const category = row['CATEGORY'] || row['TYPE'] || ''; // OLD or NEW
+    
+    // Parse the 5 measurement values
+    const value1 = parseFloat(row['VALUE 1'] || row['MIN VALUE 1'] || row['MEASUREMENT 1']) || 0;
+    const value2 = parseFloat(row['VALUE 2'] || row['MIN VALUE 2'] || row['MEASUREMENT 2']) || 0;
+    const value3 = parseFloat(row['VALUE 3'] || row['MIN VALUE 3'] || row['MEASUREMENT 3']) || 0;
+    const value4 = parseFloat(row['VALUE 4'] || row['MIN VALUE 4'] || row['MEASUREMENT 4']) || 0;
+    const value5 = parseFloat(row['VALUE 5'] || row['MIN VALUE 5'] || row['MEASUREMENT 5']) || 0;
+    
+    // Calculate average
+    const measurements = [value1, value2, value3, value4, value5];
+    const validMeasurements = measurements.filter(val => val > 0);
+    const average = validMeasurements.length > 0 ? 
+      validMeasurements.reduce((sum, val) => sum + val, 0) / validMeasurements.length : 0;
+    
+    // Define ranges based on category
+    let minRange, maxRange, rangeName;
+    
+    if (category.toUpperCase().includes('OLD')) {
+      minRange = 420;
+      maxRange = 480;
+      rangeName = 'OLD: 420 to 480';
+    } else if (category.toUpperCase().includes('NEW')) {
+      minRange = 380;
+      maxRange = 440;
+      rangeName = 'NEW: 380 to 440';
+    } else {
+      // Try to parse range from the data itself if category is not clear
+      const rangeText = row['RANGE'] || '';
+      if (rangeText.includes('420') && rangeText.includes('480')) {
+        minRange = 420;
+        maxRange = 480;
+        rangeName = 'OLD: 420 to 480';
+      } else if (rangeText.includes('380') && rangeText.includes('440')) {
+        minRange = 380;
+        maxRange = 440;
+        rangeName = 'NEW: 380 to 440';
+      } else {
+        // Default to OLD range if unclear
+        minRange = 420;
+        maxRange = 480;
+        rangeName = 'OLD: 420 to 480 (default)';
+      }
+    }
+    
+    // Determine pass/fail status
+    const isWithinRange = average >= minRange && average <= maxRange;
+    const finalStatus = isWithinRange ? 'PASS' : 'FAIL';
+    
+    // Debug logging for first few rows
+    if (index < 3) {
+      console.log(`\nGSM Row ${index + 1} Debug:`);
+      console.log(`- Vendor: ${vendorName}, BOM: ${bom}`);
+      console.log(`- Category: ${category}`);
+      console.log(`- Measurements: [${measurements.join(', ')}]`);
+      console.log(`- Valid measurements: ${validMeasurements.length}`);
+      console.log(`- Average: ${average}`);
+      console.log(`- Range: ${rangeName} (${minRange}-${maxRange})`);
+      console.log(`- Status: ${finalStatus}`);
+    }
+    
+    return {
+      id: index + 1,
+      vendorName,
+      bom,
+      category,
+      
+      // Raw measurement values
+      value1,
+      value2,
+      value3,
+      value4,
+      value5,
+      
+      // Calculated values
+      average: Math.round(average * 100) / 100,
+      validMeasurementCount: validMeasurements.length,
+      
+      // Range information
+      minRange,
+      maxRange,
+      rangeName,
+      
+      // Status
+      isWithinRange,
+      finalStatus,
+      
+      // Additional info
+      criteria: `${minRange} ≤ average ≤ ${maxRange}`
+    };
+  });
+}
+
+// Function to update test results in Test Data based on GSM results
+function updateTestDataWithGSMResults(testData, gsmResults) {
+  return testData.map(testRow => {
+    // Check if this is a GSM test
+    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('GSM')) {
+      const vendorName = testRow['VENDOR NAME'];
+      const bomType = testRow['BOM'];
+      
+      // Find matching GSM results for this vendor and BOM
+      const gsmResult = gsmResults.find(result => 
+        result.vendorName === vendorName && result.bom === bomType
+      );
+      
+      if (gsmResult) {
+        // Update the test result
+        testRow['TEST RESULT'] = gsmResult.finalStatus;
+        testRow['GSM_CALCULATION_DETAILS'] = {
+          measurements: {
+            value1: gsmResult.value1,
+            value2: gsmResult.value2,
+            value3: gsmResult.value3,
+            value4: gsmResult.value4,
+            value5: gsmResult.value5,
+            validCount: gsmResult.validMeasurementCount
+          },
+          calculation: {
+            average: gsmResult.average,
+            range: gsmResult.rangeName,
+            minRange: gsmResult.minRange,
+            maxRange: gsmResult.maxRange,
+            criteria: gsmResult.criteria
+          },
+          status: {
+            isWithinRange: gsmResult.isWithinRange,
+            finalStatus: gsmResult.finalStatus
+          },
+          category: gsmResult.category
+        };
+        
+        console.log(`Updated GSM test result for ${vendorName} ${bomType}: ${gsmResult.finalStatus} (avg: ${gsmResult.average}, range: ${gsmResult.rangeName})`);
+      } else {
+        console.log(`No GSM calculation found for ${vendorName} ${bomType}`);
+      }
+    }
+    
+    return testRow;
+  });
+}
+
+// Function to process resistance test results from Resistance sheet
+function processResistanceResults(resistanceData) {
+  return resistanceData.map((row, index) => {
+    // Parse values from the Resistance sheet columns
+    const bom = row['BOM'] || '';
+    const type = row['TYPE'] || ''; // BUS RIBBON or INTERCONNECT RIBBON
+    const vendorName = row['VENDOR NAME'] || '';
+    const measuredValue = parseFloat(row['MEASURED VALUE']) || 0;
+    
+    // Since there's no specific criteria, we'll look for a result column
+    // or assume it will be manually updated in the Test Data sheet
+    const testResult = row['TEST RESULT'] || row['RESULT'] || row['STATUS'] || 'Pending';
+    
+    // Debug logging for first few rows
+    if (index < 3) {
+      console.log(`\nResistance Row ${index + 1} Debug:`);
+      console.log(`- BOM: ${bom}`);
+      console.log(`- Type: ${type}`);
+      console.log(`- Vendor: ${vendorName}`);
+      console.log(`- Measured Value: ${measuredValue}`);
+      console.log(`- Test Result: ${testResult}`);
+    }
+    
+    return {
+      id: index + 1,
+      bom,
+      type, // BUS RIBBON or INTERCONNECT RIBBON
+      vendorName,
+      measuredValue: Math.round(measuredValue * 1000000) / 1000000, // Round to 6 decimal places for precision
+      testResult: testResult.toUpperCase() === 'PASS' ? 'PASS' : 
+                 testResult.toUpperCase() === 'FAIL' ? 'FAIL' : 'Pending',
+      
+      // Additional metadata
+      ribbonType: type,
+      hasValidMeasurement: measuredValue > 0,
+      notes: row['NOTES'] || row['REMARKS'] || ''
+    };
+  });
+}
+
+// Function to update test results in Test Data based on resistance results
+function updateTestDataWithResistanceResults(testData, resistanceResults) {
+  return testData.map(testRow => {
+    // Check if this is a resistance test
+    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('RESISTANCE')) {
+      const vendorName = testRow['VENDOR NAME'];
+      const bomType = testRow['BOM'];
+      
+      // Find matching resistance results for this vendor and BOM
+      // Note: There might be multiple results (BUS RIBBON and INTERCONNECT RIBBON)
+      const vendorResistanceData = resistanceResults.filter(result => 
+        result.vendorName === vendorName && result.bom === bomType
+      );
+      
+      if (vendorResistanceData.length > 0) {
+        // Separate BUS RIBBON and INTERCONNECT RIBBON results
+        const busRibbonResult = vendorResistanceData.find(item => 
+          item.type.toUpperCase().includes('BUS')
+        );
+        const interconnectRibbonResult = vendorResistanceData.find(item => 
+          item.type.toUpperCase().includes('INTERCONNECT')
+        );
+        
+        // Determine overall result based on manual entries
+        let overallResult = 'Pending';
+        
+        // Logic for overall result:
+        // - If both types are tested and both are PASS, then PASS
+        // - If any type is FAIL, then FAIL
+        // - If any type is Pending, then Pending
+        
+        const busStatus = busRibbonResult ? busRibbonResult.testResult : 'Not Tested';
+        const interconnectStatus = interconnectRibbonResult ? interconnectRibbonResult.testResult : 'Not Tested';
+        
+        if (busStatus === 'FAIL' || interconnectStatus === 'FAIL') {
+          overallResult = 'FAIL';
+        } else if (busStatus === 'PASS' && interconnectStatus === 'PASS') {
+          overallResult = 'PASS';
+        } else if (busStatus === 'PASS' && interconnectStatus === 'Not Tested') {
+          overallResult = 'PASS'; // Only one type tested and passed
+        } else if (interconnectStatus === 'PASS' && busStatus === 'Not Tested') {
+          overallResult = 'PASS'; // Only one type tested and passed
+        } else if (busStatus === 'PASS' || interconnectStatus === 'PASS') {
+          overallResult = 'Pending'; // Mixed results
+        } else {
+          overallResult = 'Pending'; // Default
+        }
+        
+        // Update the test result
+        testRow['TEST RESULT'] = overallResult;
+        testRow['RESISTANCE_CALCULATION_DETAILS'] = {
+          busRibbon: busRibbonResult ? {
+            measuredValue: busRibbonResult.measuredValue,
+            result: busRibbonResult.testResult,
+            notes: busRibbonResult.notes
+          } : null,
+          interconnectRibbon: interconnectRibbonResult ? {
+            measuredValue: interconnectRibbonResult.measuredValue,
+            result: interconnectRibbonResult.testResult,
+            notes: interconnectRibbonResult.notes
+          } : null,
+          overallResult: overallResult,
+          testMethod: 'Manual Assessment',
+          criteria: 'No specific criteria - manually assessed',
+          totalMeasurements: vendorResistanceData.length
+        };
+        
+        console.log(`Updated resistance test result for ${vendorName} ${bomType}: ${overallResult}`);
+        console.log(`- BUS RIBBON: ${busStatus}`);
+        console.log(`- INTERCONNECT RIBBON: ${interconnectStatus}`);
+      } else {
+        console.log(`No resistance measurements found for ${vendorName} ${bomType}`);
+      }
+    }
+    
+    return testRow;
+  });
+}
+
+// Function to process bypass diode test results from BYPASS DIODE TEST sheet
+function processBypassDiodeResults(bypassDiodeData) {
+  return bypassDiodeData.map((row, index) => {
+    // Parse values from the BYPASS DIODE TEST sheet columns
+    const bom = row['BOM'] || '';
+    const vendorName = row['VENDOR NAME'] || '';
+    const maxTemperatureTj = parseFloat(row['MAX TEMPERATURE OF DIODE(Tj)'] || row['MAX TEMPERATURE OF DIODE (Tj)'] || row['Tj']) || 0;
+    
+    // Look for manual test result entry
+    const testResult = row['TEST RESULT'] || row['RESULT'] || row['STATUS'] || row['PASS/FAIL'] || 'Pending';
+    
+    // Additional fields that might be present
+    const notes = row['NOTES'] || row['REMARKS'] || row['COMMENTS'] || '';
+    const testDate = row['TEST DATE'] || row['DATE'] || '';
+    const testedBy = row['TESTED BY'] || row['OPERATOR'] || '';
+    
+    // Debug logging for first few rows
+    if (index < 3) {
+      console.log(`\nBypass Diode Row ${index + 1} Debug:`);
+      console.log(`- BOM: ${bom}`);
+      console.log(`- Vendor: ${vendorName}`);
+      console.log(`- Max Temperature (Tj): ${maxTemperatureTj}°C`);
+      console.log(`- Test Result: ${testResult}`);
+      console.log(`- Notes: ${notes}`);
+    }
+    
+    // Normalize test result
+    let normalizedResult = 'Pending';
+    if (testResult) {
+      const resultUpper = testResult.toString().toUpperCase();
+      if (resultUpper === 'PASS' || resultUpper === 'P') {
+        normalizedResult = 'PASS';
+      } else if (resultUpper === 'FAIL' || resultUpper === 'F') {
+        normalizedResult = 'FAIL';
+      }
+    }
+    
+    return {
+      id: index + 1,
+      bom,
+      vendorName,
+      maxTemperatureTj: Math.round(maxTemperatureTj * 100) / 100, // Round to 2 decimal places
+      testResult: normalizedResult,
+      
+      // Additional metadata
+      hasValidTemperature: maxTemperatureTj > 0,
+      temperatureUnit: '°C',
+      notes,
+      testDate,
+      testedBy,
+      
+      // Assessment metadata
+      assessmentMethod: 'Manual Operator Assessment',
+      criteria: 'Manual evaluation based on Max Temperature (Tj) and operational requirements'
+    };
+  });
+}
+
+// Function to update test results in Test Data based on bypass diode results
+function updateTestDataWithBypassDiodeResults(testData, bypassDiodeResults) {
+  return testData.map(testRow => {
+    // Check if this is a bypass diode test
+    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('BYPASS')) {
+      const vendorName = testRow['VENDOR NAME'];
+      const bomType = testRow['BOM'];
+      
+      // Find matching bypass diode results for this vendor and BOM
+      const bypassDiodeResult = bypassDiodeResults.find(result => 
+        result.vendorName === vendorName && result.bom === bomType
+      );
+      
+      if (bypassDiodeResult) {
+        // Update the test result with the manual assessment
+        testRow['TEST RESULT'] = bypassDiodeResult.testResult;
+        testRow['BYPASS_DIODE_CALCULATION_DETAILS'] = {
+          temperature: {
+            maxTemperatureTj: bypassDiodeResult.maxTemperatureTj,
+            unit: bypassDiodeResult.temperatureUnit,
+            hasValidReading: bypassDiodeResult.hasValidTemperature
+          },
+          assessment: {
+            result: bypassDiodeResult.testResult,
+            method: bypassDiodeResult.assessmentMethod,
+            criteria: bypassDiodeResult.criteria,
+            assessedBy: bypassDiodeResult.testedBy,
+            assessmentDate: bypassDiodeResult.testDate
+          },
+          notes: bypassDiodeResult.notes,
+          overallResult: bypassDiodeResult.testResult
+        };
+        
+        console.log(`Updated bypass diode test result for ${vendorName} ${bomType}: ${bypassDiodeResult.testResult} (Tj: ${bypassDiodeResult.maxTemperatureTj}°C)`);
+      } else {
+        console.log(`No bypass diode assessment found for ${vendorName} ${bomType}`);
+      }
+    }
+    
+    return testRow;
+  });
+}
+
+// Alternative function for more flexible column name handling
+function processBypassDiodeResultsFlexible(bypassDiodeData) {
+  return bypassDiodeData.map((row, index) => {
+    const bom = row['BOM'] || '';
+    const vendorName = row['VENDOR NAME'] || '';
+    
+    // Handle multiple possible column names for temperature
+    let maxTemperatureTj = 0;
+    const possibleTempColumns = [
+      'MAX TEMPERATURE OF DIODE(Tj)', 
+      'MAX TEMPERATURE OF DIODE (Tj)',
+      'MAX TEMPERATURE OF DIODE',
+      'TEMPERATURE (Tj)',
+      'Tj',
+      'MAX TEMP',
+      'DIODE TEMPERATURE',
+      'JUNCTION TEMPERATURE'
+    ];
+    
+    for (const colName of possibleTempColumns) {
+      if (row[colName] !== undefined && row[colName] !== null && row[colName] !== '') {
+        const parsedTemp = parseFloat(row[colName]);
+        if (!isNaN(parsedTemp) && parsedTemp > 0) {
+          maxTemperatureTj = parsedTemp;
+          break;
+        }
+      }
+    }
+    
+    // Handle multiple possible column names for test result
+    let testResult = 'Pending';
+    const possibleResultColumns = [
+      'TEST RESULT', 'RESULT', 'STATUS', 'PASS/FAIL', 'OUTCOME',
+      'ASSESSMENT', 'MANUAL RESULT', 'OPERATOR RESULT'
+    ];
+    
+    for (const colName of possibleResultColumns) {
+      if (row[colName] !== undefined && row[colName] !== null && row[colName] !== '') {
+        const result = String(row[colName]).toUpperCase();
+        if (result === 'PASS' || result === 'FAIL' || result === 'P' || result === 'F') {
+          testResult = result === 'P' ? 'PASS' : result === 'F' ? 'FAIL' : result;
+          break;
+        }
+      }
+    }
+    
+    return {
+      id: index + 1,
+      bom,
+      vendorName,
+      maxTemperatureTj: Math.round(maxTemperatureTj * 100) / 100,
+      testResult,
+      hasValidTemperature: maxTemperatureTj > 0,
+      temperatureUnit: '°C',
+      notes: row['NOTES'] || row['REMARKS'] || row['COMMENTS'] || '',
+      testDate: row['TEST DATE'] || row['DATE'] || '',
+      testedBy: row['TESTED BY'] || row['OPERATOR'] || '',
+      assessmentMethod: 'Manual Operator Assessment',
+      criteria: 'Manual evaluation based on Max Temperature (Tj) and operational requirements'
+    };
+  });
+}
+
 
 // Improved file check function to provide more details
 function checkExcelFile(filename) {
@@ -936,7 +1367,201 @@ if (hasTensileStrengthTests) {
   }
 }
 
+// Add this section to your main /api/test-data endpoint after the tensile strength section:
 
+// Check for GSM tests and read GSM sheet if needed
+const hasGSMTests = rawData.some(row => 
+  row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('GSM')
+);
+
+let gsmResults = [];
+if (hasGSMTests) {
+  // Read GSM sheet for GSM test data
+  const gsmSheetName = 'GSM';
+  const gsmSheet = workbook.Sheets[gsmSheetName];
+  
+  if (gsmSheet) {
+    console.log('Found GSM tests, reading GSM sheet for GSM data...');
+    const gsmRawData = xlsx.utils.sheet_to_json(gsmSheet);
+    
+    // Log the raw data structure for debugging
+    if (gsmRawData.length > 0) {
+      console.log('Sample GSM raw data structure:', Object.keys(gsmRawData[0]));
+      console.log('First GSM row:', gsmRawData[0]);
+    }
+    
+    // Filter out empty rows and header rows
+    const validGSMData = gsmRawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    console.log(`Found ${validGSMData.length} valid GSM data rows`);
+    
+    if (validGSMData.length > 0) {
+      gsmResults = calculateGSMResults(validGSMData);
+      console.log(`Calculated GSM results for ${gsmResults.length} entries`);
+      
+      // Log calculated results for debugging
+      gsmResults.forEach((result, index) => {
+        if (index < 3) { // Log first 3 results for debugging
+          console.log(`GSM result ${index + 1}:`, {
+            vendor: result.vendorName,
+            bom: result.bom,
+            category: result.category,
+            average: result.average,
+            range: result.rangeName,
+            final: result.finalStatus
+          });
+        }
+      });
+    }
+  } else {
+    console.warn('GSM tests found but GSM sheet not available for calculations');
+  }
+}
+
+// Add this section to your main /api/test-data endpoint after the GSM section:
+
+// Check for resistance tests and read Resistance sheet if needed
+const hasResistanceTests = rawData.some(row => 
+  row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('RESISTANCE')
+);
+
+let resistanceResults = [];
+if (hasResistanceTests) {
+  // Read Resistance sheet for resistance test data
+  const resistanceSheetName = 'Resistance';
+  const resistanceSheet = workbook.Sheets[resistanceSheetName];
+  
+  if (resistanceSheet) {
+    console.log('Found resistance tests, reading Resistance sheet for resistance data...');
+    const resistanceRawData = xlsx.utils.sheet_to_json(resistanceSheet);
+    
+    // Log the raw data structure for debugging
+    if (resistanceRawData.length > 0) {
+      console.log('Sample resistance raw data structure:', Object.keys(resistanceRawData[0]));
+      console.log('First resistance row:', resistanceRawData[0]);
+    }
+    
+    // Filter out empty rows and header rows
+    const validResistanceData = resistanceRawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM'] && row['TYPE']
+    );
+    
+    console.log(`Found ${validResistanceData.length} valid resistance data rows`);
+    
+    if (validResistanceData.length > 0) {
+      resistanceResults = processResistanceResults(validResistanceData);
+      console.log(`Processed resistance results for ${resistanceResults.length} entries`);
+      
+      // Log processed results for debugging
+      resistanceResults.forEach((result, index) => {
+        if (index < 3) { // Log first 3 results for debugging
+          console.log(`Resistance result ${index + 1}:`, {
+            vendor: result.vendorName,
+            bom: result.bom,
+            type: result.type,
+            measuredValue: result.measuredValue,
+            result: result.testResult
+          });
+        }
+      });
+      
+      // Group by vendor and BOM to show summary
+      const resistanceSummary = {};
+      resistanceResults.forEach(result => {
+        const key = `${result.vendorName}-${result.bom}`;
+        if (!resistanceSummary[key]) {
+          resistanceSummary[key] = {
+            vendor: result.vendorName,
+            bom: result.bom,
+            busRibbon: null,
+            interconnectRibbon: null
+          };
+        }
+        
+        if (result.type.includes('BUS')) {
+          resistanceSummary[key].busRibbon = {
+            value: result.measuredValue,
+            result: result.testResult
+          };
+        } else if (result.type.includes('INTERCONNECT')) {
+          resistanceSummary[key].interconnectRibbon = {
+            value: result.measuredValue,
+            result: result.testResult
+          };
+        }
+      });
+      
+      console.log('Resistance test summary by vendor/BOM:', resistanceSummary);
+    }
+  } else {
+    console.warn('Resistance tests found but Resistance sheet not available for processing');
+  }
+}
+
+// Add this section to your main /api/test-data endpoint after the resistance section:
+
+// Check for bypass diode tests and read BYPASS DIODE TEST sheet if needed
+const hasBypassDiodeTests = rawData.some(row => 
+  row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('BYPASS')
+);
+
+let bypassDiodeResults = [];
+if (hasBypassDiodeTests) {
+  // Read BYPASS DIODE TEST sheet for bypass diode test data
+  const bypassDiodeSheetName = 'BYPASS DIODE TEST';
+  const bypassDiodeSheet = workbook.Sheets[bypassDiodeSheetName];
+  
+  if (bypassDiodeSheet) {
+    console.log('Found bypass diode tests, reading BYPASS DIODE TEST sheet for bypass diode data...');
+    const bypassDiodeRawData = xlsx.utils.sheet_to_json(bypassDiodeSheet);
+    
+    // Log the raw data structure for debugging
+    if (bypassDiodeRawData.length > 0) {
+      console.log('Sample bypass diode raw data structure:', Object.keys(bypassDiodeRawData[0]));
+      console.log('First bypass diode row:', bypassDiodeRawData[0]);
+    }
+    
+    // Filter out empty rows and header rows
+    const validBypassDiodeData = bypassDiodeRawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    console.log(`Found ${validBypassDiodeData.length} valid bypass diode data rows`);
+    
+    if (validBypassDiodeData.length > 0) {
+      bypassDiodeResults = processBypassDiodeResults(validBypassDiodeData);
+      console.log(`Processed bypass diode results for ${bypassDiodeResults.length} entries`);
+      
+      // Log processed results for debugging
+      bypassDiodeResults.forEach((result, index) => {
+        if (index < 3) { // Log first 3 results for debugging
+          console.log(`Bypass Diode result ${index + 1}:`, {
+            vendor: result.vendorName,
+            bom: result.bom,
+            maxTemperatureTj: result.maxTemperatureTj,
+            testResult: result.testResult,
+            hasValidTemp: result.hasValidTemperature
+          });
+        }
+      });
+      
+      // Summary of bypass diode test results
+      const bypassDiodeSummary = {
+        total: bypassDiodeResults.length,
+        passed: bypassDiodeResults.filter(r => r.testResult === 'PASS').length,
+        failed: bypassDiodeResults.filter(r => r.testResult === 'FAIL').length,
+        pending: bypassDiodeResults.filter(r => r.testResult === 'Pending').length,
+        withValidTemperature: bypassDiodeResults.filter(r => r.hasValidTemperature).length
+      };
+      
+      console.log('Bypass Diode test summary:', bypassDiodeSummary);
+    }
+  } else {
+    console.warn('Bypass diode tests found but BYPASS DIODE TEST sheet not available for processing');
+  }
+}
     
     // Read the Standard Test Times sheet for reference
     const standardsSheetName = 'Standard Test Times';
@@ -1017,6 +1642,45 @@ if (tensileStrengthResults.length > 0) {
   );
   console.log(`Updated ${updatedTensileStrengthTests.length} tensile strength test results`);
 }
+
+// Update test data with GSM results if available (add this after tensile strength update)
+if (gsmResults.length > 0) {
+  updatedRawData = updateTestDataWithGSMResults(updatedRawData, gsmResults);
+  console.log('Updated test data with GSM calculation results');
+  
+  // Log how many GSM tests were updated
+  const updatedGSMTests = updatedRawData.filter(row => 
+    row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('GSM') && 
+    row['GSM_CALCULATION_DETAILS']
+  );
+  console.log(`Updated ${updatedGSMTests.length} GSM test results`);
+}
+
+if (resistanceResults.length > 0) {
+  updatedRawData = updateTestDataWithResistanceResults(updatedRawData, resistanceResults);
+  console.log('Updated test data with resistance results');
+  
+  // Log how many resistance tests were updated
+  const updatedResistanceTests = updatedRawData.filter(row => 
+    row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('RESISTANCE') && 
+    row['RESISTANCE_CALCULATION_DETAILS']
+  );
+  console.log(`Updated ${updatedResistanceTests.length} resistance test results`);
+}
+
+// Update test data with bypass diode results if available (add this after resistance update)
+if (bypassDiodeResults.length > 0) {
+  updatedRawData = updateTestDataWithBypassDiodeResults(updatedRawData, bypassDiodeResults);
+  console.log('Updated test data with bypass diode results');
+  
+  // Log how many bypass diode tests were updated
+  const updatedBypassDiodeTests = updatedRawData.filter(row => 
+    row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('BYPASS') && 
+    row['BYPASS_DIODE_CALCULATION_DETAILS']
+  );
+  console.log(`Updated ${updatedBypassDiodeTests.length} bypass diode test results`);
+}
+
     
     // Process the data to match the dashboard's expected format
     const processedData = updatedRawData.map((row, index) => {
