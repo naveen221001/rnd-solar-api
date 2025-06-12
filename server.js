@@ -334,7 +334,7 @@ const HARDCODED_STD_DURATIONS = {
 
 // Add this function after the calculateChamberData function in server.js
 
-// Function to calculate shrinkage test results from Sheet1 format
+// Function to calculate shrinkage test results from Shrinkage format
 function calculateShrinkageResults(shrinkageData) {
   return shrinkageData.map((row, index) => {
     // Parse numeric values from your exact column structure
@@ -1206,19 +1206,19 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     const rawData = xlsx.utils.sheet_to_json(worksheet);
     console.log(`Processed ${rawData.length} rows from ${testDataSheetName} sheet`);
     
-    // Check for shrinkage tests and read Sheet1 if needed
+    // Check for shrinkage tests and read Shrinkage if needed
     const hasShrinkageTests = rawData.some(row => 
       row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('SHRINKAGE')
     );
     
     let shrinkageResults = [];
     if (hasShrinkageTests) {
-      // Read Sheet1 for shrinkage data
-      const shrinkageSheetName = 'Sheet1';
+      // Read Shrinkage for shrinkage data
+      const shrinkageSheetName = 'Shrinkage';
       const shrinkageSheet = workbook.Sheets[shrinkageSheetName];
       
       if (shrinkageSheet) {
-        console.log('Found shrinkage tests, reading Sheet1 for shrinkage data...');
+        console.log('Found shrinkage tests, reading Shrinkage for shrinkage data...');
         const shrinkageRawData = xlsx.utils.sheet_to_json(shrinkageSheet);
         
         // Log the raw data structure for debugging
@@ -1254,7 +1254,7 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
           });
         }
       } else {
-        console.warn('Shrinkage tests found but Sheet1 not available for calculations');
+        console.warn('Shrinkage tests found but Shrinkage not available for calculations');
       }
     }
 
@@ -2181,8 +2181,8 @@ app.get('/api/shrinkage-tests', authenticateMicrosoftToken, (req, res) => {
       });
     }
     
-    // Read the "Sheet1" for shrinkage data
-    const shrinkageSheetName = 'Sheet1';
+    // Read the "Shrinkage" for shrinkage data
+    const shrinkageSheetName = 'Shrinkage';
     const worksheet = workbook.Sheets[shrinkageSheetName];
     if (!worksheet) {
       return res.status(404).json({ 
