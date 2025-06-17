@@ -337,17 +337,25 @@ const HARDCODED_STD_DURATIONS = {
 // Function to calculate shrinkage test results from Shrinkage format
 function calculateShrinkageResults(shrinkageData) {
   return shrinkageData.map((row, index) => {
-    // Parse numeric values from your exact column structure
-    const td1WithoutHeat = parseFloat(row['TD1']) || 0; // Column C
-    const td2WithoutHeat = parseFloat(row['TD2']) || 0; // Column D  
-    const md1WithoutHeat = parseFloat(row['MD1']) || 0; // Column E
-    const md2WithoutHeat = parseFloat(row['MD2']) || 0; // Column F
+    // Your structure has headers in row 2-3, so we need to handle this differently
+    // Based on your image: columns C,D,E,F are WITHOUT HEAT (TD1,TD2,MD1,MD2)
+    // columns G,H,I,J are WITH HEAT (TD1,TD2,MD1,MD2)
     
-    // Handle WITH Heat columns (Excel may add __1 suffix for duplicate headers)
-    const td1WithHeat = parseFloat(row['TD1__1'] || row['TD1_1'] || row['Column7']) || 0; // Column G
-    const td2WithHeat = parseFloat(row['TD2__1'] || row['TD2_1'] || row['Column8']) || 0; // Column H
-    const md1WithHeat = parseFloat(row['MD1__1'] || row['MD1_1'] || row['Column9']) || 0; // Column I
-    const md2WithHeat = parseFloat(row['MD2__1'] || row['MD2_1'] || row['Column10']) || 0; // Column J
+    // Try to get vendor name from the correct column
+    const vendorName = row['VENDOR NAME'] || row['Column2'] || '';
+    const encapsulantType = row['ENCAPSULANT TYPE'] || row['Column1'] || '';
+    
+    // Parse values based on column positions (adjust these based on your actual data)
+    const td1WithoutHeat = parseFloat(row['TD1'] || row['Column3']) || 0;
+    const td2WithoutHeat = parseFloat(row['TD2'] || row['Column4']) || 0;
+    const md1WithoutHeat = parseFloat(row['MD1'] || row['Column5']) || 0;
+    const md2WithoutHeat = parseFloat(row['MD2'] || row['Column6']) || 0;
+    
+    // WITH HEAT columns - these might have duplicate names, so Excel adds __1 suffix
+    const td1WithHeat = parseFloat(row['TD1__1'] || row['Column7']) || 0;
+    const td2WithHeat = parseFloat(row['TD2__1'] || row['Column8']) || 0;
+    const md1WithHeat = parseFloat(row['MD1__1'] || row['Column9']) || 0;
+    const md2WithHeat = parseFloat(row['MD2__1'] || row['Column10']) || 0;
     
     // Calculate means
     const tdMeanWithoutHeat = (td1WithoutHeat + td2WithoutHeat) / 2;
@@ -355,46 +363,28 @@ function calculateShrinkageResults(shrinkageData) {
     const mdMeanWithoutHeat = (md1WithoutHeat + md2WithoutHeat) / 2;
     const mdMeanWithHeat = (md1WithHeat + md2WithHeat) / 2;
     
-    // Calculate absolute differences
+    // Calculate differences
     const tdDifference = Math.abs(tdMeanWithHeat - tdMeanWithoutHeat);
     const mdDifference = Math.abs(mdMeanWithHeat - mdMeanWithoutHeat);
     
-    // Determine pass/fail status (less than 1% = pass)
+    // Pass/fail status (less than 1% = pass)
     const tdStatus = tdDifference < 1.0 ? 'PASS' : 'FAIL';
     const mdStatus = mdDifference < 1.0 ? 'PASS' : 'FAIL';
-    
-    // Final status: PASS only if both TD and MD are PASS
     const finalStatus = (tdStatus === 'PASS' && mdStatus === 'PASS') ? 'PASS' : 'FAIL';
     
     return {
       id: index + 1,
-      vendorName: row['VENDOR NAME'] || '',
-      encapsulantType: row['ENCAPSULANT TYPE'] || '',
-      
-      // Raw values
-      td1WithoutHeat,
-      td2WithoutHeat,
-      md1WithoutHeat,
-      md2WithoutHeat,
-      td1WithHeat,
-      td2WithHeat,
-      md1WithHeat,
-      md2WithHeat,
-      
-      // Calculated values
+      vendorName,
+      encapsulantType,
+      td1WithoutHeat, td2WithoutHeat, md1WithoutHeat, md2WithoutHeat,
+      td1WithHeat, td2WithHeat, md1WithHeat, md2WithHeat,
       tdMeanWithoutHeat: Math.round(tdMeanWithoutHeat * 100) / 100,
       tdMeanWithHeat: Math.round(tdMeanWithHeat * 100) / 100,
       mdMeanWithoutHeat: Math.round(mdMeanWithoutHeat * 100) / 100,
       mdMeanWithHeat: Math.round(mdMeanWithHeat * 100) / 100,
-      
-      // Differences
       tdDifference: Math.round(tdDifference * 100) / 100,
       mdDifference: Math.round(mdDifference * 100) / 100,
-      
-      // Status
-      tdStatus,
-      mdStatus,
-      finalStatus
+      tdStatus, mdStatus, finalStatus
     };
   });
 }
@@ -452,72 +442,53 @@ function updateTestDataWithShrinkageResults(testData, shrinkageResults) {
 // Add this function after the calculateShrinkageResults function in server.js
 
 // Function to calculate adhesion test results from Adhesion sheet
+// 5. UPDATED: Adhesion calculation - specify header row
 function calculateAdhesionResults(adhesionData) {
   return adhesionData.map((row, index) => {
-    // Parse values from the Adhesion sheet columns
+    // Your structure should have VENDOR NAME in column and the test values
     const vendorName = row['VENDOR NAME'] || '';
     const bom = row['BOM'] || '';
     
-    // PRE PCT values (Columns C-F)
-    const prePctGlassToEncapMax = parseFloat(row['max'] || row['Column3']) || 0;      // Column C
-    const prePctGlassToEncapMin = parseFloat(row['min'] || row['Column4']) || 0;      // Column D  
-    const prePctBacksheetToEncapMax = parseFloat(row['max__1'] || row['Column5']) || 0; // Column E
-    const prePctBacksheetToEncapMin = parseFloat(row['min__1'] || row['Column6']) || 0; // Column F
+    // Parse values - these column names should match your Excel exactly
+    const prePctGlassToEncapMax = parseFloat(row['max'] || row['Column4']) || 0;
+    const prePctGlassToEncapMin = parseFloat(row['min'] || row['Column5']) || 0;
+    const prePctBacksheetToEncapMax = parseFloat(row['max__1'] || row['Column6']) || 0;
+    const prePctBacksheetToEncapMin = parseFloat(row['min__1'] || row['Column7']) || 0;
     
-    // POST PCT values (Columns G-J)
-    const postPctGlassToEncapMax = parseFloat(row['max__2'] || row['Column7']) || 0;     // Column G
-    const postPctGlassToEncapMin = parseFloat(row['min__2'] || row['Column8']) || 0;     // Column H
-    const postPctBacksheetToEncapMax = parseFloat(row['max__3'] || row['Column9']) || 0; // Column I
-    const postPctBacksheetToEncapMin = parseFloat(row['min__3'] || row['Column10']) || 0; // Column J
+    const postPctGlassToEncapMax = parseFloat(row['max__2'] || row['Column8']) || 0;
+    const postPctGlassToEncapMin = parseFloat(row['min__2'] || row['Column9']) || 0;
+    const postPctBacksheetToEncapMax = parseFloat(row['max__3'] || row['Column10']) || 0;
+    const postPctBacksheetToEncapMin = parseFloat(row['min__3'] || row['Column11']) || 0;
     
-    // Calculate averages for each category
+    // Calculate averages
     const prePctGlassToEncapAvg = (prePctGlassToEncapMax + prePctGlassToEncapMin) / 2;
     const prePctBacksheetToEncapAvg = (prePctBacksheetToEncapMax + prePctBacksheetToEncapMin) / 2;
     const postPctGlassToEncapAvg = (postPctGlassToEncapMax + postPctGlassToEncapMin) / 2;
     const postPctBacksheetToEncapAvg = (postPctBacksheetToEncapMax + postPctBacksheetToEncapMin) / 2;
     
-    // Apply pass/fail criteria
+    // Apply criteria
     const prePctGlassToEncapStatus = prePctGlassToEncapAvg > 60 ? 'PASS' : 'FAIL';
     const prePctBacksheetToEncapStatus = prePctBacksheetToEncapAvg > 40 ? 'PASS' : 'FAIL';
     const postPctGlassToEncapStatus = postPctGlassToEncapAvg > 60 ? 'PASS' : 'FAIL';
     const postPctBacksheetToEncapStatus = postPctBacksheetToEncapAvg > 40 ? 'PASS' : 'FAIL';
     
-    // Final status: PASS only if ALL four pass
-    const finalStatus = (
-      prePctGlassToEncapStatus === 'PASS' && 
-      prePctBacksheetToEncapStatus === 'PASS' && 
-      postPctGlassToEncapStatus === 'PASS' && 
-      postPctBacksheetToEncapStatus === 'PASS'
-    ) ? 'PASS' : 'FAIL';
+    const finalStatus = (prePctGlassToEncapStatus === 'PASS' && 
+                        prePctBacksheetToEncapStatus === 'PASS' && 
+                        postPctGlassToEncapStatus === 'PASS' && 
+                        postPctBacksheetToEncapStatus === 'PASS') ? 'PASS' : 'FAIL';
     
     return {
-      id: index + 1,
-      vendorName,
-      bom,
-      
-      // Raw values
-      prePctGlassToEncapMax,
-      prePctGlassToEncapMin,
-      prePctBacksheetToEncapMax,
-      prePctBacksheetToEncapMin,
-      postPctGlassToEncapMax,
-      postPctGlassToEncapMin,
-      postPctBacksheetToEncapMax,
-      postPctBacksheetToEncapMin,
-      
-      // Calculated averages
+      id: index + 1, vendorName, bom,
+      prePctGlassToEncapMax, prePctGlassToEncapMin,
+      prePctBacksheetToEncapMax, prePctBacksheetToEncapMin,
+      postPctGlassToEncapMax, postPctGlassToEncapMin,
+      postPctBacksheetToEncapMax, postPctBacksheetToEncapMin,
       prePctGlassToEncapAvg: Math.round(prePctGlassToEncapAvg * 100) / 100,
       prePctBacksheetToEncapAvg: Math.round(prePctBacksheetToEncapAvg * 100) / 100,
       postPctGlassToEncapAvg: Math.round(postPctGlassToEncapAvg * 100) / 100,
       postPctBacksheetToEncapAvg: Math.round(postPctBacksheetToEncapAvg * 100) / 100,
-      
-      // Individual status
-      prePctGlassToEncapStatus,
-      prePctBacksheetToEncapStatus,
-      postPctGlassToEncapStatus,
-      postPctBacksheetToEncapStatus,
-      
-      // Final status
+      prePctGlassToEncapStatus, prePctBacksheetToEncapStatus,
+      postPctGlassToEncapStatus, postPctBacksheetToEncapStatus,
       finalStatus
     };
   });
@@ -628,143 +599,51 @@ function calculateTensileStrengthResults(tensileData) {
 }
 
 // Function to update test results in Test Data based on tensile strength results
-function updateTestDataWithTensileStrengthResults(testData, tensileResults) {
-  return testData.map(testRow => {
-    // Check if this is a tensile strength test
-    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('TENSILE')) {
-      const vendorName = testRow['VENDOR NAME'];
-      const bomType = testRow['BOM'];
-      
-      // Find matching tensile strength results for this vendor and BOM
-      const tensileResult = tensileResults.find(result => 
-        result.vendorName === vendorName && result.bom === bomType
-      );
-      
-      if (tensileResult) {
-        // Update the test result
-        testRow['TEST RESULT'] = tensileResult.finalStatus;
-        testRow['TENSILE_CALCULATION_DETAILS'] = {
-          break: {
-            value: tensileResult.breakValue,
-            status: tensileResult.breakStatus,
-            criteria: tensileResult.breakCriteria
-          },
-          elongation: {
-            percent: tensileResult.changeInElongationPercent,
-            status: tensileResult.elongationStatus,
-            criteria: tensileResult.elongationCriteria,
-            calculationMethod: tensileResult.initialLength && tensileResult.finalLength ? 
-              'Calculated from lengths' : 'Direct percentage'
-          },
-          overallResult: tensileResult.finalStatus
-        };
-        
-        // Add length details if available
-        if (tensileResult.initialLength && tensileResult.finalLength) {
-          testRow['TENSILE_CALCULATION_DETAILS'].elongation.initialLength = tensileResult.initialLength;
-          testRow['TENSILE_CALCULATION_DETAILS'].elongation.finalLength = tensileResult.finalLength;
-        }
-      }
-    }
-    
-    return testRow;
-  });
-}
-
-// Function to calculate GSM test results from GSM sheet
+// 2. UPDATED: GSM calculation - matches your column names
 function calculateGSMResults(gsmData) {
   return gsmData.map((row, index) => {
-    // Parse values from the GSM sheet columns
+    // Your structure: BOM, VENDOR NAME, Type, min value 1, min value 2, min value 3, min value 4, min value 5, Mean
     const vendorName = row['VENDOR NAME'] || '';
     const bom = row['BOM'] || '';
-    const category = row['CATEGORY'] || row['TYPE'] || ''; // OLD or NEW
+    const category = row['Type'] || ''; // Changed from 'CATEGORY' to 'Type'
     
-    // Parse the 5 measurement values
-    const value1 = parseFloat(row['VALUE 1'] || row['MIN VALUE 1'] || row['MEASUREMENT 1']) || 0;
-    const value2 = parseFloat(row['VALUE 2'] || row['MIN VALUE 2'] || row['MEASUREMENT 2']) || 0;
-    const value3 = parseFloat(row['VALUE 3'] || row['MIN VALUE 3'] || row['MEASUREMENT 3']) || 0;
-    const value4 = parseFloat(row['VALUE 4'] || row['MIN VALUE 4'] || row['MEASUREMENT 4']) || 0;
-    const value5 = parseFloat(row['VALUE 5'] || row['MIN VALUE 5'] || row['MEASUREMENT 5']) || 0;
+    // Parse the 5 measurement values - updated column names
+    const value1 = parseFloat(row['min value 1']) || 0;
+    const value2 = parseFloat(row['min value 2']) || 0;
+    const value3 = parseFloat(row['min value 3']) || 0;
+    const value4 = parseFloat(row['min value 4']) || 0;
+    const value5 = parseFloat(row['min value 5']) || 0;
     
-    // Calculate average
-    const measurements = [value1, value2, value3, value4, value5];
-    const validMeasurements = measurements.filter(val => val > 0);
-    const average = validMeasurements.length > 0 ? 
-      validMeasurements.reduce((sum, val) => sum + val, 0) / validMeasurements.length : 0;
+    // Use provided mean if available, otherwise calculate
+    let average = parseFloat(row['Mean']) || 0;
+    if (average === 0) {
+      const measurements = [value1, value2, value3, value4, value5];
+      const validMeasurements = measurements.filter(val => val > 0);
+      average = validMeasurements.length > 0 ? 
+        validMeasurements.reduce((sum, val) => sum + val, 0) / validMeasurements.length : 0;
+    }
     
     // Define ranges based on category
     let minRange, maxRange, rangeName;
     
     if (category.toUpperCase().includes('OLD')) {
-      minRange = 420;
-      maxRange = 480;
-      rangeName = 'OLD: 420 to 480';
+      minRange = 420; maxRange = 480; rangeName = 'OLD: 420 to 480';
     } else if (category.toUpperCase().includes('NEW')) {
-      minRange = 380;
-      maxRange = 440;
-      rangeName = 'NEW: 380 to 440';
+      minRange = 380; maxRange = 440; rangeName = 'NEW: 380 to 440';
     } else {
-      // Try to parse range from the data itself if category is not clear
-      const rangeText = row['RANGE'] || '';
-      if (rangeText.includes('420') && rangeText.includes('480')) {
-        minRange = 420;
-        maxRange = 480;
-        rangeName = 'OLD: 420 to 480';
-      } else if (rangeText.includes('380') && rangeText.includes('440')) {
-        minRange = 380;
-        maxRange = 440;
-        rangeName = 'NEW: 380 to 440';
-      } else {
-        // Default to OLD range if unclear
-        minRange = 420;
-        maxRange = 480;
-        rangeName = 'OLD: 420 to 480 (default)';
-      }
+      // Default to OLD range if unclear
+      minRange = 420; maxRange = 480; rangeName = 'OLD: 420 to 480 (default)';
     }
     
-    // Determine pass/fail status
     const isWithinRange = average >= minRange && average <= maxRange;
     const finalStatus = isWithinRange ? 'PASS' : 'FAIL';
     
-    // Debug logging for first few rows
-    if (index < 3) {
-      console.log(`\nGSM Row ${index + 1} Debug:`);
-      console.log(`- Vendor: ${vendorName}, BOM: ${bom}`);
-      console.log(`- Category: ${category}`);
-      console.log(`- Measurements: [${measurements.join(', ')}]`);
-      console.log(`- Valid measurements: ${validMeasurements.length}`);
-      console.log(`- Average: ${average}`);
-      console.log(`- Range: ${rangeName} (${minRange}-${maxRange})`);
-      console.log(`- Status: ${finalStatus}`);
-    }
-    
     return {
-      id: index + 1,
-      vendorName,
-      bom,
-      category,
-      
-      // Raw measurement values
-      value1,
-      value2,
-      value3,
-      value4,
-      value5,
-      
-      // Calculated values
+      id: index + 1, vendorName, bom, category,
+      value1, value2, value3, value4, value5,
       average: Math.round(average * 100) / 100,
-      validMeasurementCount: validMeasurements.length,
-      
-      // Range information
-      minRange,
-      maxRange,
-      rangeName,
-      
-      // Status
-      isWithinRange,
-      finalStatus,
-      
-      // Additional info
+      validMeasurementCount: [value1, value2, value3, value4, value5].filter(val => val > 0).length,
+      minRange, maxRange, rangeName, isWithinRange, finalStatus,
       criteria: `${minRange} ≤ average ≤ ${maxRange}`
     };
   });
@@ -819,41 +698,24 @@ function updateTestDataWithGSMResults(testData, gsmResults) {
   });
 }
 
-// Function to process resistance test results from Resistance sheet
+// 3. UPDATED: Resistance calculation - handles your structure
 function processResistanceResults(resistanceData) {
   return resistanceData.map((row, index) => {
-    // Parse values from the Resistance sheet columns
+    // Your structure: BOM, TYPE, VENDOR NAME, MEASURED VALUE
     const bom = row['BOM'] || '';
-    const type = row['TYPE'] || ''; // BUS RIBBON or INTERCONNECT RIBBON
+    const type = row['TYPE'] || '';
     const vendorName = row['VENDOR NAME'] || '';
     const measuredValue = parseFloat(row['MEASURED VALUE']) || 0;
     
-    // Since there's no specific criteria, we'll look for a result column
-    // or assume it will be manually updated in the Test Data sheet
+    // Look for result column (you might need to add this manually)
     const testResult = row['TEST RESULT'] || row['RESULT'] || row['STATUS'] || 'Pending';
     
-    // Debug logging for first few rows
-    if (index < 3) {
-      console.log(`\nResistance Row ${index + 1} Debug:`);
-      console.log(`- BOM: ${bom}`);
-      console.log(`- Type: ${type}`);
-      console.log(`- Vendor: ${vendorName}`);
-      console.log(`- Measured Value: ${measuredValue}`);
-      console.log(`- Test Result: ${testResult}`);
-    }
-    
     return {
-      id: index + 1,
-      bom,
-      type, // BUS RIBBON or INTERCONNECT RIBBON
-      vendorName,
-      measuredValue: Math.round(measuredValue * 1000000) / 1000000, // Round to 6 decimal places for precision
+      id: index + 1, bom, type, vendorName,
+      measuredValue: Math.round(measuredValue * 1000000) / 1000000,
       testResult: testResult.toUpperCase() === 'PASS' ? 'PASS' : 
                  testResult.toUpperCase() === 'FAIL' ? 'FAIL' : 'Pending',
-      
-      // Additional metadata
-      ribbonType: type,
-      hasValidMeasurement: measuredValue > 0,
+      ribbonType: type, hasValidMeasurement: measuredValue > 0,
       notes: row['NOTES'] || row['REMARKS'] || ''
     };
   });
@@ -939,32 +801,17 @@ function updateTestDataWithResistanceResults(testData, resistanceResults) {
 }
 
 // Function to process bypass diode test results from BYPASS DIODE TEST sheet
+// 4. UPDATED: Bypass Diode calculation - handles your structure  
 function processBypassDiodeResults(bypassDiodeData) {
   return bypassDiodeData.map((row, index) => {
-    // Parse values from the BYPASS DIODE TEST sheet columns
+    // Your structure: BOM, VENDOR NAME, MAX TEMPERATURE OF DIODE(Tj)
     const bom = row['BOM'] || '';
     const vendorName = row['VENDOR NAME'] || '';
-    const maxTemperatureTj = parseFloat(row['MAX TEMPERATURE OF DIODE(Tj)'] || row['MAX TEMPERATURE OF DIODE (Tj)'] || row['Tj']) || 0;
+    const maxTemperatureTj = parseFloat(row['MAX TEMPERATURE OF DIODE(Tj)']) || 0;
     
     // Look for manual test result entry
-    const testResult = row['TEST RESULT'] || row['RESULT'] || row['STATUS'] || row['PASS/FAIL'] || 'Pending';
+    const testResult = row['TEST RESULT'] || row['RESULT'] || row['STATUS'] || 'Pending';
     
-    // Additional fields that might be present
-    const notes = row['NOTES'] || row['REMARKS'] || row['COMMENTS'] || '';
-    const testDate = row['TEST DATE'] || row['DATE'] || '';
-    const testedBy = row['TESTED BY'] || row['OPERATOR'] || '';
-    
-    // Debug logging for first few rows
-    if (index < 3) {
-      console.log(`\nBypass Diode Row ${index + 1} Debug:`);
-      console.log(`- BOM: ${bom}`);
-      console.log(`- Vendor: ${vendorName}`);
-      console.log(`- Max Temperature (Tj): ${maxTemperatureTj}°C`);
-      console.log(`- Test Result: ${testResult}`);
-      console.log(`- Notes: ${notes}`);
-    }
-    
-    // Normalize test result
     let normalizedResult = 'Pending';
     if (testResult) {
       const resultUpper = testResult.toString().toUpperCase();
@@ -976,22 +823,16 @@ function processBypassDiodeResults(bypassDiodeData) {
     }
     
     return {
-      id: index + 1,
-      bom,
-      vendorName,
-      maxTemperatureTj: Math.round(maxTemperatureTj * 100) / 100, // Round to 2 decimal places
+      id: index + 1, bom, vendorName,
+      maxTemperatureTj: Math.round(maxTemperatureTj * 100) / 100,
       testResult: normalizedResult,
-      
-      // Additional metadata
       hasValidTemperature: maxTemperatureTj > 0,
       temperatureUnit: '°C',
-      notes,
-      testDate,
-      testedBy,
-      
-      // Assessment metadata
+      notes: row['NOTES'] || row['REMARKS'] || '',
+      testDate: row['TEST DATE'] || row['DATE'] || '',
+      testedBy: row['TESTED BY'] || row['OPERATOR'] || '',
       assessmentMethod: 'Manual Operator Assessment',
-      criteria: 'Manual evaluation based on Max Temperature (Tj) and operational requirements'
+      criteria: 'Manual evaluation based on Max Temperature (Tj)'
     };
   });
 }
@@ -1213,32 +1054,32 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     
     let shrinkageResults = [];
     if (hasShrinkageTests) {
-      // Read Shrinkage for shrinkage data
-      const shrinkageSheetName = 'Shrinkage';
-      const shrinkageSheet = workbook.Sheets[shrinkageSheetName];
-      
-      if (shrinkageSheet) {
-        console.log('Found shrinkage tests, reading Shrinkage for shrinkage data...');
-        const shrinkageRawData = xlsx.utils.sheet_to_json(shrinkageSheet);
-        
-        // Log the raw data structure for debugging
-        if (shrinkageRawData.length > 0) {
-          console.log('Sample shrinkage raw data structure:', Object.keys(shrinkageRawData[0]));
-          console.log('First shrinkage row:', shrinkageRawData[0]);
-        }
-        
-        // Filter out empty rows and header rows
-        const validShrinkageData = shrinkageRawData.filter(row => 
-          row['VENDOR NAME'] && 
-          row['ENCAPSULANT TYPE'] && 
-          (row['ENCAPSULANT TYPE'] === 'FRONT EPE' || row['ENCAPSULANT TYPE'] === 'BACK EVA')
-        );
-        
-        console.log(`Found ${validShrinkageData.length} valid shrinkage data rows`);
-        
-        if (validShrinkageData.length > 0) {
-          shrinkageResults = calculateShrinkageResults(validShrinkageData);
-          console.log(`Calculated shrinkage results for ${shrinkageResults.length} entries`);
+  const shrinkageSheetName = 'Shrinkage';
+  const shrinkageSheet = workbook.Sheets[shrinkageSheetName];
+  
+  if (shrinkageSheet) {
+    console.log('Found shrinkage tests, reading Shrinkage sheet...');
+    
+    // Read from row 2 since your headers are split across rows 2-3
+    const shrinkageRawData = xlsx.utils.sheet_to_json(shrinkageSheet, { 
+      range: 1, // Start from row 2 (0-indexed)
+      defval: '' // Use empty string for missing values
+    });
+    
+    console.log('Sample shrinkage data structure:', Object.keys(shrinkageRawData[0] || {}));
+    console.log('First shrinkage row:', shrinkageRawData[0]);
+    
+    // Filter for valid data
+    const validShrinkageData = shrinkageRawData.filter(row => 
+      (row['VENDOR NAME'] || row['Column2']) && 
+      (row['ENCAPSULANT TYPE'] || row['Column1'])
+    );
+    
+    console.log(`Found ${validShrinkageData.length} valid shrinkage data rows`);
+    
+    if (validShrinkageData.length > 0) {
+      shrinkageResults = calculateShrinkageResults(validShrinkageData);
+      console.log(`Calculated shrinkage results for ${shrinkageResults.length} entries`);
           
           // Log calculated results for debugging
           shrinkageResults.forEach((result, index) => {
@@ -1267,30 +1108,31 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     
     let adhesionResults = [];
     if (hasAdhesionTests) {
-      // Read Adhesion sheet for adhesion data
-      const adhesionSheetName = 'Adhesion';
-      const adhesionSheet = workbook.Sheets[adhesionSheetName];
-      
-      if (adhesionSheet) {
-        console.log('Found adhesion tests, reading Adhesion sheet for adhesion data...');
-        const adhesionRawData = xlsx.utils.sheet_to_json(adhesionSheet);
-        
-        // Log the raw data structure for debugging
-        if (adhesionRawData.length > 0) {
-          console.log('Sample adhesion raw data structure:', Object.keys(adhesionRawData[0]));
-          console.log('First adhesion row:', adhesionRawData[0]);
-        }
-        
-        // Filter out empty rows and header rows
-        const validAdhesionData = adhesionRawData.filter(row => 
-          row['VENDOR NAME'] && row['BOM']
-        );
-        
-        console.log(`Found ${validAdhesionData.length} valid adhesion data rows`);
-        
-        if (validAdhesionData.length > 0) {
-          adhesionResults = calculateAdhesionResults(validAdhesionData);
-          console.log(`Calculated adhesion results for ${adhesionResults.length} entries`);
+  const adhesionSheetName = 'Adhesion';
+  const adhesionSheet = workbook.Sheets[adhesionSheetName];
+  
+  if (adhesionSheet) {
+    console.log('Found adhesion tests, reading Adhesion sheet...');
+    
+    // Read from row 3 since your headers are in row 3
+    const adhesionRawData = xlsx.utils.sheet_to_json(adhesionSheet, {
+      range: 2, // Start from row 3 (0-indexed)
+      defval: ''
+    });
+    
+    console.log('Sample adhesion data structure:', Object.keys(adhesionRawData[0] || {}));
+    
+    // Filter for valid data
+    const validAdhesionData = adhesionRawData.filter(row => 
+      row['VENDOR NAME'] && row['BOM']
+    );
+    
+    console.log(`Found ${validAdhesionData.length} valid adhesion data rows`);
+    
+    if (validAdhesionData.length > 0) {
+      adhesionResults = calculateAdhesionResults(validAdhesionData);
+      console.log(`Calculated adhesion results for ${adhesionResults.length} entries`);
+    
           
           // Log calculated results for debugging
           adhesionResults.forEach((result, index) => {
@@ -1376,21 +1218,21 @@ const hasGSMTests = rawData.some(row =>
 
 let gsmResults = [];
 if (hasGSMTests) {
-  // Read GSM sheet for GSM test data
   const gsmSheetName = 'GSM';
   const gsmSheet = workbook.Sheets[gsmSheetName];
   
   if (gsmSheet) {
-    console.log('Found GSM tests, reading GSM sheet for GSM data...');
-    const gsmRawData = xlsx.utils.sheet_to_json(gsmSheet);
+    console.log('Found GSM tests, reading GSM sheet...');
     
-    // Log the raw data structure for debugging
-    if (gsmRawData.length > 0) {
-      console.log('Sample GSM raw data structure:', Object.keys(gsmRawData[0]));
-      console.log('First GSM row:', gsmRawData[0]);
-    }
+    // Read from row 2 since your headers are in row 2
+    const gsmRawData = xlsx.utils.sheet_to_json(gsmSheet, {
+      range: 1, // Start from row 2 (0-indexed)
+      defval: ''
+    });
     
-    // Filter out empty rows and header rows
+    console.log('Sample GSM data structure:', Object.keys(gsmRawData[0] || {}));
+    
+    // Filter for valid data
     const validGSMData = gsmRawData.filter(row => 
       row['VENDOR NAME'] && row['BOM']
     );
@@ -1429,21 +1271,21 @@ const hasResistanceTests = rawData.some(row =>
 
 let resistanceResults = [];
 if (hasResistanceTests) {
-  // Read Resistance sheet for resistance test data
   const resistanceSheetName = 'Resistance';
   const resistanceSheet = workbook.Sheets[resistanceSheetName];
   
   if (resistanceSheet) {
-    console.log('Found resistance tests, reading Resistance sheet for resistance data...');
-    const resistanceRawData = xlsx.utils.sheet_to_json(resistanceSheet);
+    console.log('Found resistance tests, reading Resistance sheet...');
     
-    // Log the raw data structure for debugging
-    if (resistanceRawData.length > 0) {
-      console.log('Sample resistance raw data structure:', Object.keys(resistanceRawData[0]));
-      console.log('First resistance row:', resistanceRawData[0]);
-    }
+    // Read from row 2 since your headers are in row 2
+    const resistanceRawData = xlsx.utils.sheet_to_json(resistanceSheet, {
+      range: 1, // Start from row 2 (0-indexed)
+      defval: ''
+    });
     
-    // Filter out empty rows and header rows
+    console.log('Sample resistance data structure:', Object.keys(resistanceRawData[0] || {}));
+    
+    // Filter for valid data
     const validResistanceData = resistanceRawData.filter(row => 
       row['VENDOR NAME'] && row['BOM'] && row['TYPE']
     );
@@ -1509,21 +1351,21 @@ const hasBypassDiodeTests = rawData.some(row =>
 
 let bypassDiodeResults = [];
 if (hasBypassDiodeTests) {
-  // Read BYPASS DIODE TEST sheet for bypass diode test data
   const bypassDiodeSheetName = 'BYPASS DIODE TEST';
   const bypassDiodeSheet = workbook.Sheets[bypassDiodeSheetName];
   
   if (bypassDiodeSheet) {
-    console.log('Found bypass diode tests, reading BYPASS DIODE TEST sheet for bypass diode data...');
-    const bypassDiodeRawData = xlsx.utils.sheet_to_json(bypassDiodeSheet);
+    console.log('Found bypass diode tests, reading BYPASS DIODE TEST sheet...');
     
-    // Log the raw data structure for debugging
-    if (bypassDiodeRawData.length > 0) {
-      console.log('Sample bypass diode raw data structure:', Object.keys(bypassDiodeRawData[0]));
-      console.log('First bypass diode row:', bypassDiodeRawData[0]);
-    }
+    // Read from row 2 since your headers are in row 2
+    const bypassDiodeRawData = xlsx.utils.sheet_to_json(bypassDiodeSheet, {
+      range: 1, // Start from row 2 (0-indexed)
+      defval: ''
+    });
     
-    // Filter out empty rows and header rows
+    console.log('Sample bypass diode data structure:', Object.keys(bypassDiodeRawData[0] || {}));
+    
+    // Filter for valid data
     const validBypassDiodeData = bypassDiodeRawData.filter(row => 
       row['VENDOR NAME'] && row['BOM']
     );
