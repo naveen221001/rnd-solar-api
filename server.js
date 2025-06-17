@@ -598,6 +598,57 @@ function calculateTensileStrengthResults(tensileData) {
   });
 }
 
+// Add this function to your server.js file 
+// Place it after the calculateTensileStrengthResults function
+
+// Function to update test results in Test Data based on tensile strength results
+function updateTestDataWithTensileStrengthResults(testData, tensileStrengthResults) {
+  return testData.map(testRow => {
+    // Check if this is a tensile strength test
+    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('TENSILE')) {
+      const vendorName = testRow['VENDOR NAME'];
+      const bomType = testRow['BOM'];
+      
+      // Find matching tensile strength results for this vendor and BOM
+      const tensileResult = tensileStrengthResults.find(result => 
+        result.vendorName === vendorName && result.bom === bomType
+      );
+      
+      if (tensileResult) {
+        // Update the test result
+        testRow['TEST RESULT'] = tensileResult.finalStatus;
+        testRow['TENSILE_CALCULATION_DETAILS'] = {
+          break: {
+            value: tensileResult.breakValue,
+            status: tensileResult.breakStatus,
+            criteria: tensileResult.breakCriteria
+          },
+          elongation: {
+            percent: tensileResult.changeInElongationPercent,
+            status: tensileResult.elongationStatus,
+            criteria: tensileResult.elongationCriteria,
+            calculationMethod: tensileResult.initialLength && tensileResult.finalLength ? 
+              'Calculated from lengths' : 'Direct percentage'
+          },
+          overallResult: tensileResult.finalStatus
+        };
+        
+        // Add length details if available
+        if (tensileResult.initialLength && tensileResult.finalLength) {
+          testRow['TENSILE_CALCULATION_DETAILS'].elongation.initialLength = tensileResult.initialLength;
+          testRow['TENSILE_CALCULATION_DETAILS'].elongation.finalLength = tensileResult.finalLength;
+        }
+        
+        console.log(`Updated tensile test result for ${vendorName} ${bomType}: ${tensileResult.finalStatus} (break: ${tensileResult.breakValue} MPa, elongation: ${tensileResult.changeInElongationPercent}%)`);
+      } else {
+        console.log(`No tensile calculation found for ${vendorName} ${bomType}`);
+      }
+    }
+    
+    return testRow;
+  });
+}
+
 // Function to update test results in Test Data based on tensile strength results
 // 2. UPDATED: GSM calculation - matches your column names
 function calculateGSMResults(gsmData) {
