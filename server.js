@@ -335,27 +335,36 @@ const HARDCODED_STD_DURATIONS = {
 // Add this function after the calculateChamberData function in server.js
 
 // Function to calculate shrinkage test results from Shrinkage format
+// UPDATED: Fix calculateShrinkageResults function in server.js
 function calculateShrinkageResults(shrinkageData) {
   return shrinkageData.map((row, index) => {
-    // Your structure has headers in row 2-3, so we need to handle this differently
-    // Based on your image: columns C,D,E,F are WITHOUT HEAT (TD1,TD2,MD1,MD2)
-    // columns G,H,I,J are WITH HEAT (TD1,TD2,MD1,MD2)
+    // Based on your Excel structure: ENCAPSULANT TYPE, VENDOR NAME, then the 8 measurement columns
+    const vendorName = row['VENDOR NAME'] || '';
+    const encapsulantType = row['ENCAPSULANT TYPE'] || '';
     
-    // Try to get vendor name from the correct column
-    const vendorName = row['VENDOR NAME'] || row['Column2'] || '';
-    const encapsulantType = row['ENCAPSULANT TYPE'] || row['Column1'] || '';
+    // Parse values for WITHOUT HEAT (columns C,D,E,F in Excel)
+    // Excel columns: TD1, TD2, MD1, MD2 (WITHOUT HEAT)
+    const td1WithoutHeat = parseFloat(row['TD1']) || 0;
+    const td2WithoutHeat = parseFloat(row['TD2']) || 0;  
+    const md1WithoutHeat = parseFloat(row['MD1']) || 0;
+    const md2WithoutHeat = parseFloat(row['MD2']) || 0;
     
-    // Parse values based on column positions (adjust these based on your actual data)
-    const td1WithoutHeat = parseFloat(row['TD1'] || row['Column3']) || 0;
-    const td2WithoutHeat = parseFloat(row['TD2'] || row['Column4']) || 0;
-    const md1WithoutHeat = parseFloat(row['MD1'] || row['Column5']) || 0;
-    const md2WithoutHeat = parseFloat(row['MD2'] || row['Column6']) || 0;
+    // Parse values for WITH HEAT (columns G,H,I,J in Excel)
+    // These might have duplicate column names, so Excel adds __1 suffix
+    const td1WithHeat = parseFloat(row['TD1__1']) || parseFloat(row['TD1.1']) || 0;
+    const td2WithHeat = parseFloat(row['TD2__1']) || parseFloat(row['TD2.1']) || 0;
+    const md1WithHeat = parseFloat(row['MD1__1']) || parseFloat(row['MD1.1']) || 0;
+    const md2WithHeat = parseFloat(row['MD2__1']) || parseFloat(row['MD2.1']) || 0;
     
-    // WITH HEAT columns - these might have duplicate names, so Excel adds __1 suffix
-    const td1WithHeat = parseFloat(row['TD1__1'] || row['Column7']) || 0;
-    const td2WithHeat = parseFloat(row['TD2__1'] || row['Column8']) || 0;
-    const md1WithHeat = parseFloat(row['MD1__1'] || row['Column9']) || 0;
-    const md2WithHeat = parseFloat(row['MD2__1'] || row['Column10']) || 0;
+    // Debug logging for first few rows
+    if (index < 2) {
+      console.log(`Shrinkage row ${index + 1} raw data:`, {
+        vendor: vendorName,
+        type: encapsulantType,
+        withoutHeat: { td1: td1WithoutHeat, td2: td2WithoutHeat, md1: md1WithoutHeat, md2: md2WithoutHeat },
+        withHeat: { td1: td1WithHeat, td2: td2WithHeat, md1: md1WithHeat, md2: md2WithHeat }
+      });
+    }
     
     // Calculate means
     const tdMeanWithoutHeat = (td1WithoutHeat + td2WithoutHeat) / 2;
@@ -443,22 +452,42 @@ function updateTestDataWithShrinkageResults(testData, shrinkageResults) {
 
 // Function to calculate adhesion test results from Adhesion sheet
 // 5. UPDATED: Adhesion calculation - specify header row
+// UPDATED: Fix calculateAdhesionResults function in server.js
 function calculateAdhesionResults(adhesionData) {
   return adhesionData.map((row, index) => {
-    // Your structure should have VENDOR NAME in column and the test values
+    // Based on your Excel: BOM, VENDOR NAME, then the measurement columns
     const vendorName = row['VENDOR NAME'] || '';
     const bom = row['BOM'] || '';
     
-    // Parse values - these column names should match your Excel exactly
-    const prePctGlassToEncapMax = parseFloat(row['max'] || row['Column4']) || 0;
-    const prePctGlassToEncapMin = parseFloat(row['min'] || row['Column5']) || 0;
-    const prePctBacksheetToEncapMax = parseFloat(row['max__1'] || row['Column6']) || 0;
-    const prePctBacksheetToEncapMin = parseFloat(row['min__1'] || row['Column7']) || 0;
+    // Parse values for PRE PCT section (columns C-F in Excel)
+    // GLASS to ENCAPSULANT: max, min
+    const prePctGlassToEncapMax = parseFloat(row['max']) || 0;
+    const prePctGlassToEncapMin = parseFloat(row['min']) || 0;
     
-    const postPctGlassToEncapMax = parseFloat(row['max__2'] || row['Column8']) || 0;
-    const postPctGlassToEncapMin = parseFloat(row['min__2'] || row['Column9']) || 0;
-    const postPctBacksheetToEncapMax = parseFloat(row['max__3'] || row['Column10']) || 0;
-    const postPctBacksheetToEncapMin = parseFloat(row['min__3'] || row['Column11']) || 0;
+    // BACKSHEET to ENCAPSULANT: max, min
+    const prePctBacksheetToEncapMax = parseFloat(row['max__1']) || parseFloat(row['max.1']) || 0;
+    const prePctBacksheetToEncapMin = parseFloat(row['min__1']) || parseFloat(row['min.1']) || 0;
+    
+    // Parse values for POST PCT section (columns G-J in Excel)
+    // GLASS to ENCAPSULANT: max, min
+    const postPctGlassToEncapMax = parseFloat(row['max__2']) || parseFloat(row['max.2']) || 0;
+    const postPctGlassToEncapMin = parseFloat(row['min__2']) || parseFloat(row['min.2']) || 0;
+    
+    // BACKSHEET to ENCAPSULANT: max, min  
+    const postPctBacksheetToEncapMax = parseFloat(row['max__3']) || parseFloat(row['max.3']) || 0;
+    const postPctBacksheetToEncapMin = parseFloat(row['min__3']) || parseFloat(row['min.3']) || 0;
+    
+    // Debug logging for first few rows
+    if (index < 2) {
+      console.log(`Adhesion row ${index + 1} raw data:`, {
+        vendor: vendorName,
+        bom: bom,
+        prePct: { glassMax: prePctGlassToEncapMax, glassMin: prePctGlassToEncapMin, 
+                  backMax: prePctBacksheetToEncapMax, backMin: prePctBacksheetToEncapMin },
+        postPct: { glassMax: postPctGlassToEncapMax, glassMin: postPctGlassToEncapMin,
+                   backMax: postPctBacksheetToEncapMax, backMin: postPctBacksheetToEncapMin }
+      });
+    }
     
     // Calculate averages
     const prePctGlassToEncapAvg = (prePctGlassToEncapMax + prePctGlassToEncapMin) / 2;
@@ -466,7 +495,7 @@ function calculateAdhesionResults(adhesionData) {
     const postPctGlassToEncapAvg = (postPctGlassToEncapMax + postPctGlassToEncapMin) / 2;
     const postPctBacksheetToEncapAvg = (postPctBacksheetToEncapMax + postPctBacksheetToEncapMin) / 2;
     
-    // Apply criteria
+    // Apply criteria: Glass > 60, Backsheet > 40
     const prePctGlassToEncapStatus = prePctGlassToEncapAvg > 60 ? 'PASS' : 'FAIL';
     const prePctBacksheetToEncapStatus = prePctBacksheetToEncapAvg > 40 ? 'PASS' : 'FAIL';
     const postPctGlassToEncapStatus = postPctGlassToEncapAvg > 60 ? 'PASS' : 'FAIL';
@@ -544,26 +573,27 @@ function updateTestDataWithAdhesionResults(testData, adhesionResults) {
 // Add this function after the calculateAdhesionResults function in server.js
 
 // Function to calculate tensile strength test results from Tensile Strength sheet
+// UPDATED: Fix calculateTensileStrengthResults function in server.js
 function calculateTensileStrengthResults(tensileData) {
   return tensileData.map((row, index) => {
-    // Parse values from the Tensile Strength sheet columns
+    // Based on your Excel: BOM, VENDOR NAME, BREAK, CHANGE IN ELONGATION %
     const vendorName = row['VENDOR NAME'] || '';
     const bom = row['BOM'] || '';
     
-    // Parse Break value (Column C - should be > 10 MPa)
+    // Parse Break value (should be > 10 MPa)
     const breakValue = parseFloat(row['BREAK']) || 0;
     
-    // Parse Change in Elongation % (Column D)
+    // Parse Change in Elongation % (should be >= 450%)
     let changeInElongationPercent = parseFloat(row['CHANGE IN ELONGATION %']) || 0;
     
-    // Check if we have initial and final length values instead
-    const initialLength = parseFloat(row['INITIAL LENGTH'] || row['Column5']) || 0;
-    const finalLength = parseFloat(row['FINAL LENGTH'] || row['Column6']) || 0;
-    
-    // Calculate elongation % if initial and final lengths are provided
-    if (initialLength > 0 && finalLength > 0 && changeInElongationPercent === 0) {
-      changeInElongationPercent = ((finalLength - initialLength) * 100) / initialLength;
-      console.log(`Calculated elongation % for ${vendorName}: ${changeInElongationPercent}% (Initial: ${initialLength}, Final: ${finalLength})`);
+    // Debug logging for first few rows
+    if (index < 2) {
+      console.log(`Tensile row ${index + 1} raw data:`, {
+        vendor: vendorName,
+        bom: bom,
+        break: breakValue,
+        elongation: changeInElongationPercent
+      });
     }
     
     // Apply pass/fail criteria
@@ -581,8 +611,6 @@ function calculateTensileStrengthResults(tensileData) {
       // Raw values
       breakValue: Math.round(breakValue * 100) / 100,
       changeInElongationPercent: Math.round(changeInElongationPercent * 100) / 100,
-      initialLength: initialLength > 0 ? Math.round(initialLength * 100) / 100 : null,
-      finalLength: finalLength > 0 ? Math.round(finalLength * 100) / 100 : null,
       
       // Individual status
       breakStatus,
@@ -651,14 +679,15 @@ function updateTestDataWithTensileStrengthResults(testData, tensileStrengthResul
 
 // Function to update test results in Test Data based on tensile strength results
 // 2. UPDATED: GSM calculation - matches your column names
+// UPDATED: Fix calculateGSMResults function in server.js
 function calculateGSMResults(gsmData) {
   return gsmData.map((row, index) => {
-    // Your structure: BOM, VENDOR NAME, Type, min value 1, min value 2, min value 3, min value 4, min value 5, Mean
+    // Based on your Excel: BOM, VENDOR NAME, Type, min value 1-5, Mean
     const vendorName = row['VENDOR NAME'] || '';
     const bom = row['BOM'] || '';
-    const category = row['Type'] || ''; // Changed from 'CATEGORY' to 'Type'
+    const category = row['Type'] || ''; // This determines OLD vs NEW range
     
-    // Parse the 5 measurement values - updated column names
+    // Parse the 5 measurement values
     const value1 = parseFloat(row['min value 1']) || 0;
     const value2 = parseFloat(row['min value 2']) || 0;
     const value3 = parseFloat(row['min value 3']) || 0;
@@ -672,6 +701,17 @@ function calculateGSMResults(gsmData) {
       const validMeasurements = measurements.filter(val => val > 0);
       average = validMeasurements.length > 0 ? 
         validMeasurements.reduce((sum, val) => sum + val, 0) / validMeasurements.length : 0;
+    }
+    
+    // Debug logging for first few rows
+    if (index < 2) {
+      console.log(`GSM row ${index + 1} raw data:`, {
+        vendor: vendorName,
+        bom: bom,
+        category: category,
+        values: [value1, value2, value3, value4, value5],
+        mean: average
+      });
     }
     
     // Define ranges based on category
@@ -750,23 +790,36 @@ function updateTestDataWithGSMResults(testData, gsmResults) {
 }
 
 // 3. UPDATED: Resistance calculation - handles your structure
+// UPDATED: Fix processResistanceResults function in server.js
 function processResistanceResults(resistanceData) {
   return resistanceData.map((row, index) => {
-    // Your structure: BOM, TYPE, VENDOR NAME, MEASURED VALUE
+    // Based on your Excel: BOM, TYPE, VENDOR NAME, MEASURED VALUE
     const bom = row['BOM'] || '';
     const type = row['TYPE'] || '';
     const vendorName = row['VENDOR NAME'] || '';
     const measuredValue = parseFloat(row['MEASURED VALUE']) || 0;
     
-    // Look for result column (you might need to add this manually)
+    // Look for result column (might need manual entry)
     const testResult = row['TEST RESULT'] || row['RESULT'] || row['STATUS'] || 'Pending';
+    
+    // Debug logging for first few rows
+    if (index < 2) {
+      console.log(`Resistance row ${index + 1} raw data:`, {
+        bom: bom,
+        type: type,
+        vendor: vendorName,
+        measured: measuredValue,
+        result: testResult
+      });
+    }
     
     return {
       id: index + 1, bom, type, vendorName,
-      measuredValue: Math.round(measuredValue * 1000000) / 1000000,
+      measuredValue: Math.round(measuredValue * 1000000) / 1000000, // 6 decimal places for resistance
       testResult: testResult.toUpperCase() === 'PASS' ? 'PASS' : 
                  testResult.toUpperCase() === 'FAIL' ? 'FAIL' : 'Pending',
-      ribbonType: type, hasValidMeasurement: measuredValue > 0,
+      ribbonType: type, 
+      hasValidMeasurement: measuredValue > 0,
       notes: row['NOTES'] || row['REMARKS'] || ''
     };
   });
@@ -853,15 +906,26 @@ function updateTestDataWithResistanceResults(testData, resistanceResults) {
 
 // Function to process bypass diode test results from BYPASS DIODE TEST sheet
 // 4. UPDATED: Bypass Diode calculation - handles your structure  
+// UPDATED: Fix processBypassDiodeResults function in server.js
 function processBypassDiodeResults(bypassDiodeData) {
   return bypassDiodeData.map((row, index) => {
-    // Your structure: BOM, VENDOR NAME, MAX TEMPERATURE OF DIODE(Tj)
+    // Based on your Excel: BOM, VENDOR NAME, MAX TEMPERATURE OF DIODE(Tj)
     const bom = row['BOM'] || '';
     const vendorName = row['VENDOR NAME'] || '';
     const maxTemperatureTj = parseFloat(row['MAX TEMPERATURE OF DIODE(Tj)']) || 0;
     
     // Look for manual test result entry
     const testResult = row['TEST RESULT'] || row['RESULT'] || row['STATUS'] || 'Pending';
+    
+    // Debug logging for first few rows
+    if (index < 2) {
+      console.log(`Bypass Diode row ${index + 1} raw data:`, {
+        bom: bom,
+        vendor: vendorName,
+        temperature: maxTemperatureTj,
+        result: testResult
+      });
+    }
     
     let normalizedResult = 'Pending';
     if (testResult) {
@@ -1099,31 +1163,35 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     console.log(`Processed ${rawData.length} rows from ${testDataSheetName} sheet`);
     
     // Check for shrinkage tests and read Shrinkage if needed
-    const hasShrinkageTests = rawData.some(row => 
-      row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('SHRINKAGE')
-    );
-    
-    let shrinkageResults = [];
-    if (hasShrinkageTests) {
+    // UPDATED: Fix Shrinkage sheet reading in server.js
+// Replace the shrinkage reading section in /api/test-data endpoint
+
+// Check for shrinkage tests and read Shrinkage if needed
+const hasShrinkageTests = rawData.some(row => 
+  row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('SHRINKAGE')
+);
+
+let shrinkageResults = [];
+if (hasShrinkageTests) {
   const shrinkageSheetName = 'Shrinkage';
   const shrinkageSheet = workbook.Sheets[shrinkageSheetName];
   
   if (shrinkageSheet) {
     console.log('Found shrinkage tests, reading Shrinkage sheet...');
     
-    // Read from row 2 since your headers are split across rows 2-3
+    // Read from row 4 since headers are in row 1-2, data starts from row 4
     const shrinkageRawData = xlsx.utils.sheet_to_json(shrinkageSheet, { 
-      range: 1, // Start from row 2 (0-indexed)
+      range: 3, // Start from row 4 (0-indexed = 3)
       defval: '' // Use empty string for missing values
     });
     
     console.log('Sample shrinkage data structure:', Object.keys(shrinkageRawData[0] || {}));
     console.log('First shrinkage row:', shrinkageRawData[0]);
     
-    // Filter for valid data
+    // Filter for valid data - the Excel shows ENCAPSULANT TYPE and VENDOR NAME
     const validShrinkageData = shrinkageRawData.filter(row => 
-      (row['VENDOR NAME'] || row['Column2']) && 
-      (row['ENCAPSULANT TYPE'] || row['Column1'])
+      row['VENDOR NAME'] && row['ENCAPSULANT TYPE'] &&
+      (row['ENCAPSULANT TYPE'] === 'FRONT EPE' || row['ENCAPSULANT TYPE'] === 'BACK EVA')
     );
     
     console.log(`Found ${validShrinkageData.length} valid shrinkage data rows`);
@@ -1131,47 +1199,52 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     if (validShrinkageData.length > 0) {
       shrinkageResults = calculateShrinkageResults(validShrinkageData);
       console.log(`Calculated shrinkage results for ${shrinkageResults.length} entries`);
-          
-          // Log calculated results for debugging
-          shrinkageResults.forEach((result, index) => {
-            if (index < 3) { // Log first 3 results for debugging
-              console.log(`Shrinkage result ${index + 1}:`, {
-                vendor: result.vendorName,
-                type: result.encapsulantType,
-                tdDiff: result.tdDifference,
-                mdDiff: result.mdDifference,
-                final: result.finalStatus
-              });
-            }
+      
+      // Log calculated results for debugging
+      shrinkageResults.forEach((result, index) => {
+        if (index < 3) {
+          console.log(`Shrinkage result ${index + 1}:`, {
+            vendor: result.vendorName,
+            type: result.encapsulantType,
+            tdDiff: result.tdDifference,
+            mdDiff: result.mdDifference,
+            final: result.finalStatus
           });
         }
-      } else {
-        console.warn('Shrinkage tests found but Shrinkage not available for calculations');
-      }
+      });
     }
+  } else {
+    console.warn('Shrinkage tests found but Shrinkage sheet not available for calculations');
+  }
+}
 
     // Add this section after the shrinkage calculation section in the /api/test-data endpoint:
 
     // Check for adhesion tests and read Adhesion sheet if needed
-    const hasAdhesionTests = rawData.some(row => 
-      row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('ADHESION')
-    );
-    
-    let adhesionResults = [];
-    if (hasAdhesionTests) {
+    // UPDATED: Fix Adhesion sheet reading in server.js
+// Replace the adhesion reading section in /api/test-data endpoint
+
+// Check for adhesion tests and read Adhesion sheet if needed
+const hasAdhesionTests = rawData.some(row => 
+  row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('ADHESION')
+);
+
+let adhesionResults = [];
+if (hasAdhesionTests) {
   const adhesionSheetName = 'Adhesion';
   const adhesionSheet = workbook.Sheets[adhesionSheetName];
   
   if (adhesionSheet) {
     console.log('Found adhesion tests, reading Adhesion sheet...');
     
-    // Read from row 3 since your headers are in row 3
+    // Read from row 4 since headers are in row 2-3, data starts from row 4
     const adhesionRawData = xlsx.utils.sheet_to_json(adhesionSheet, {
-      range: 2, // Start from row 3 (0-indexed)
+      range: 3, // Start from row 4 (0-indexed = 3)
       defval: ''
     });
     
     console.log('Sample adhesion data structure:', Object.keys(adhesionRawData[0] || {}));
+    console.log('First adhesion row:', adhesionRawData[0]);
     
     // Filter for valid data
     const validAdhesionData = adhesionRawData.filter(row => 
@@ -1183,27 +1256,26 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
     if (validAdhesionData.length > 0) {
       adhesionResults = calculateAdhesionResults(validAdhesionData);
       console.log(`Calculated adhesion results for ${adhesionResults.length} entries`);
-    
-          
-          // Log calculated results for debugging
-          adhesionResults.forEach((result, index) => {
-            if (index < 3) { // Log first 3 results for debugging
-              console.log(`Adhesion result ${index + 1}:`, {
-                vendor: result.vendorName,
-                bom: result.bom,
-                prePctGlassAvg: result.prePctGlassToEncapAvg,
-                prePctBacksheetAvg: result.prePctBacksheetToEncapAvg,
-                postPctGlassAvg: result.postPctGlassToEncapAvg,
-                postPctBacksheetAvg: result.postPctBacksheetToEncapAvg,
-                final: result.finalStatus
-              });
-            }
+      
+      // Log calculated results for debugging
+      adhesionResults.forEach((result, index) => {
+        if (index < 3) {
+          console.log(`Adhesion result ${index + 1}:`, {
+            vendor: result.vendorName,
+            bom: result.bom,
+            prePctGlassAvg: result.prePctGlassToEncapAvg,
+            prePctBacksheetAvg: result.prePctBacksheetToEncapAvg,
+            postPctGlassAvg: result.postPctGlassToEncapAvg,
+            postPctBacksheetAvg: result.postPctBacksheetToEncapAvg,
+            final: result.finalStatus
           });
         }
-      } else {
-        console.warn('Adhesion tests found but Adhesion sheet not available for calculations');
-      }
+      });
     }
+  } else {
+    console.warn('Adhesion tests found but Adhesion sheet not available for calculations');
+  }
+}
 
 
     // Add this section to the main /api/test-data endpoint after the adhesion section:
