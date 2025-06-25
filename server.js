@@ -336,79 +336,189 @@ const HARDCODED_STD_DURATIONS = {
 
 // Function to calculate shrinkage test results from Shrinkage format
 // UPDATED: Fix calculateShrinkageResults function in server.js
+// IMPROVED: More robust shrinkage calculation function
+// REPLACE your calculateShrinkageResults function with this enhanced version:
+
 function calculateShrinkageResults(shrinkageData) {
+  console.log('\n🧪 CALCULATING SHRINKAGE RESULTS:');
+  console.log('==================================');
+  
   return shrinkageData.map((row, index) => {
-    // Based on your Excel structure: ENCAPSULANT TYPE, VENDOR NAME, then the 8 measurement columns
-    const vendorName = row['VENDOR NAME'] || '';
-    const encapsulantType = row['ENCAPSULANT TYPE'] || '';
+    console.log(`\nProcessing row ${index + 1}:`);
+    console.log('Available columns:', Object.keys(row));
     
-    // Parse values for WITHOUT HEAT (columns C,D,E,F in Excel)
-    // Excel columns: TD1, TD2, MD1, MD2 (WITHOUT HEAT)
-    const td1WithoutHeat = parseFloat(row['TD1']) || 0;
-    const td2WithoutHeat = parseFloat(row['TD2']) || 0;  
-    const md1WithoutHeat = parseFloat(row['MD1']) || 0;
-    const md2WithoutHeat = parseFloat(row['MD2']) || 0;
+    // Get vendor and encapsulant type with multiple possible column names
+    const vendorName = row['VENDOR NAME'] || row['Vendor Name'] || row['VENDOR_NAME'] || 
+                      row['vendor name'] || row['Vendor'] || '';
     
-    // Parse values for WITH HEAT (columns G,H,I,J in Excel)
-    // These might have duplicate column names, so Excel adds __1 suffix
-    const td1WithHeat = parseFloat(row['TD1__1']) || parseFloat(row['TD1.1']) || 0;
-    const td2WithHeat = parseFloat(row['TD2__1']) || parseFloat(row['TD2.1']) || 0;
-    const md1WithHeat = parseFloat(row['MD1__1']) || parseFloat(row['MD1.1']) || 0;
-    const md2WithHeat = parseFloat(row['MD2__1']) || parseFloat(row['MD2.1']) || 0;
+    const encapsulantType = row['ENCAPSULANT TYPE'] || row['Encapsulant Type'] || 
+                           row['ENCAPSULANT_TYPE'] || row['encapsulant type'] || 
+                           row['Type'] || row['TYPE'] || '';
     
-    // Debug logging for first few rows
-    if (index < 2) {
-      console.log(`Shrinkage row ${index + 1} raw data:`, {
-        vendor: vendorName,
-        type: encapsulantType,
-        withoutHeat: { td1: td1WithoutHeat, td2: td2WithoutHeat, md1: md1WithoutHeat, md2: md2WithoutHeat },
-        withHeat: { td1: td1WithHeat, td2: td2WithHeat, md1: md1WithHeat, md2: md2WithHeat }
+    console.log(`Vendor: "${vendorName}", Type: "${encapsulantType}"`);
+    
+    // Parse values for WITHOUT HEAT (columns C,D,E,F)
+    // Try multiple possible column names for Excel variations
+    const td1WithoutHeat = parseFloat(
+      row['TD1'] || row['td1'] || row['TD1_WITHOUT'] || 
+      row['TD1 WITHOUT HEAT'] || row['TD1_WO_HEAT'] || 
+      row['__EMPTY'] || row['__EMPTY_2'] || 0  // Excel sometimes uses __EMPTY for unlabeled columns
+    );
+    
+    const td2WithoutHeat = parseFloat(
+      row['TD2'] || row['td2'] || row['TD2_WITHOUT'] || 
+      row['TD2 WITHOUT HEAT'] || row['TD2_WO_HEAT'] ||
+      row['__EMPTY_1'] || row['__EMPTY_3'] || 0
+    );
+    
+    const md1WithoutHeat = parseFloat(
+      row['MD1'] || row['md1'] || row['MD1_WITHOUT'] || 
+      row['MD1 WITHOUT HEAT'] || row['MD1_WO_HEAT'] ||
+      row['__EMPTY_2'] || row['__EMPTY_4'] || 0
+    );
+    
+    const md2WithoutHeat = parseFloat(
+      row['MD2'] || row['md2'] || row['MD2_WITHOUT'] || 
+      row['MD2 WITHOUT HEAT'] || row['MD2_WO_HEAT'] ||
+      row['__EMPTY_3'] || row['__EMPTY_5'] || 0
+    );
+    
+    // Parse values for WITH HEAT (columns G,H,I,J)
+    // Handle Excel's automatic column renaming (__1, .1, etc.)
+    const td1WithHeat = parseFloat(
+      row['TD1__1'] || row['TD1.1'] || row['TD1_1'] || 
+      row['TD1_WITH'] || row['TD1_HEAT'] || row['TD1 WITH HEAT'] ||
+      row['__EMPTY_6'] || row['__EMPTY_4'] || 0
+    );
+    
+    const td2WithHeat = parseFloat(
+      row['TD2__1'] || row['TD2.1'] || row['TD2_1'] || 
+      row['TD2_WITH'] || row['TD2_HEAT'] || row['TD2 WITH HEAT'] ||
+      row['__EMPTY_7'] || row['__EMPTY_5'] || 0
+    );
+    
+    const md1WithHeat = parseFloat(
+      row['MD1__1'] || row['MD1.1'] || row['MD1_1'] || 
+      row['MD1_WITH'] || row['MD1_HEAT'] || row['MD1 WITH HEAT'] ||
+      row['__EMPTY_8'] || row['__EMPTY_6'] || 0
+    );
+    
+    const md2WithHeat = parseFloat(
+      row['MD2__1'] || row['MD2.1'] || row['MD2_1'] || 
+      row['MD2_WITH'] || row['MD2_HEAT'] || row['MD2 WITH HEAT'] ||
+      row['__EMPTY_9'] || row['__EMPTY_7'] || 0
+    );
+    
+    console.log('WITHOUT HEAT:', { td1: td1WithoutHeat, td2: td2WithoutHeat, md1: md1WithoutHeat, md2: md2WithoutHeat });
+    console.log('WITH HEAT:', { td1: td1WithHeat, td2: td2WithHeat, md1: md1WithHeat, md2: md2WithHeat });
+    
+    // Check if we have valid data
+    const hasValidWithoutHeatData = td1WithoutHeat > 0 || td2WithoutHeat > 0 || md1WithoutHeat > 0 || md2WithoutHeat > 0;
+    const hasValidWithHeatData = td1WithHeat > 0 || td2WithHeat > 0 || md1WithHeat > 0 || md2WithHeat > 0;
+    
+    if (!hasValidWithoutHeatData || !hasValidWithHeatData) {
+      console.log('⚠️ Missing measurement data - checking alternative column names...');
+      
+      // List all non-empty numeric columns for debugging
+      const numericColumns = {};
+      Object.keys(row).forEach(colName => {
+        const value = parseFloat(row[colName]);
+        if (!isNaN(value) && value > 0) {
+          numericColumns[colName] = value;
+        }
       });
+      console.log('Available numeric columns:', numericColumns);
     }
     
-    // Calculate means
-    const tdMeanWithoutHeat = (td1WithoutHeat + td2WithoutHeat) / 2;
-    const tdMeanWithHeat = (td1WithHeat + td2WithHeat) / 2;
-    const mdMeanWithoutHeat = (md1WithoutHeat + md2WithoutHeat) / 2;
-    const mdMeanWithHeat = (md1WithHeat + md2WithHeat) / 2;
+    // Calculate means (handle zero values gracefully)
+    const tdMeanWithoutHeat = td1WithoutHeat > 0 && td2WithoutHeat > 0 ? 
+      (td1WithoutHeat + td2WithoutHeat) / 2 : 
+      Math.max(td1WithoutHeat, td2WithoutHeat);
+      
+    const tdMeanWithHeat = td1WithHeat > 0 && td2WithHeat > 0 ? 
+      (td1WithHeat + td2WithHeat) / 2 : 
+      Math.max(td1WithHeat, td2WithHeat);
+      
+    const mdMeanWithoutHeat = md1WithoutHeat > 0 && md2WithoutHeat > 0 ? 
+      (md1WithoutHeat + md2WithoutHeat) / 2 : 
+      Math.max(md1WithoutHeat, md2WithoutHeat);
+      
+    const mdMeanWithHeat = md1WithHeat > 0 && md2WithHeat > 0 ? 
+      (md1WithHeat + md2WithHeat) / 2 : 
+      Math.max(md1WithHeat, md2WithHeat);
     
-    // Calculate differences
+    // Calculate differences (shrinkage percentage)
     const tdDifference = Math.abs(tdMeanWithHeat - tdMeanWithoutHeat);
     const mdDifference = Math.abs(mdMeanWithHeat - mdMeanWithoutHeat);
     
-    // Pass/fail status (less than 1% = pass)
+    // Apply pass/fail criteria (less than 1% shrinkage = pass)
     const tdStatus = tdDifference < 1.0 ? 'PASS' : 'FAIL';
     const mdStatus = mdDifference < 1.0 ? 'PASS' : 'FAIL';
     const finalStatus = (tdStatus === 'PASS' && mdStatus === 'PASS') ? 'PASS' : 'FAIL';
+    
+    console.log('CALCULATIONS:');
+    console.log(`TD Mean Without Heat: ${tdMeanWithoutHeat.toFixed(2)}`);
+    console.log(`TD Mean With Heat: ${tdMeanWithHeat.toFixed(2)}`);
+    console.log(`TD Difference: ${tdDifference.toFixed(2)}% (${tdStatus})`);
+    console.log(`MD Mean Without Heat: ${mdMeanWithoutHeat.toFixed(2)}`);
+    console.log(`MD Mean With Heat: ${mdMeanWithHeat.toFixed(2)}`);
+    console.log(`MD Difference: ${mdDifference.toFixed(2)}% (${mdStatus})`);
+    console.log(`FINAL RESULT: ${finalStatus}`);
     
     return {
       id: index + 1,
       vendorName,
       encapsulantType,
+      
+      // Raw measurements
       td1WithoutHeat, td2WithoutHeat, md1WithoutHeat, md2WithoutHeat,
       td1WithHeat, td2WithHeat, md1WithHeat, md2WithHeat,
+      
+      // Calculated means
       tdMeanWithoutHeat: Math.round(tdMeanWithoutHeat * 100) / 100,
       tdMeanWithHeat: Math.round(tdMeanWithHeat * 100) / 100,
       mdMeanWithoutHeat: Math.round(mdMeanWithoutHeat * 100) / 100,
       mdMeanWithHeat: Math.round(mdMeanWithHeat * 100) / 100,
+      
+      // Differences and results
       tdDifference: Math.round(tdDifference * 100) / 100,
       mdDifference: Math.round(mdDifference * 100) / 100,
-      tdStatus, mdStatus, finalStatus
+      tdStatus, 
+      mdStatus, 
+      finalStatus
     };
   });
 }
 
-// Function to update test results in Test Data based on shrinkage results
+// ALSO UPDATE the shrinkage sheet reading section in your API endpoint:
+// Replace the existing shrinkage reading section with this:
+
+
+
+// FIXED: Function to update test results in Test Data based on shrinkage results
 function updateTestDataWithShrinkageResults(testData, shrinkageResults) {
+  console.log('🔍 Starting shrinkage integration...');
+  console.log(`Processing ${testData.length} test records`);
+  console.log(`Available shrinkage results: ${shrinkageResults.length}`);
+  
   return testData.map(testRow => {
-    // Check if this is a shrinkage test
-    if (testRow['TEST NAME'] && testRow['TEST NAME'].toUpperCase().includes('SHRINKAGE')) {
-      const vendorName = testRow['VENDOR NAME'];
+    // Check if this is a shrinkage test - IMPROVED MATCHING
+    const testName = (testRow['TEST NAME'] || '').toUpperCase();
+    const vendorName = testRow['VENDOR NAME'] || '';
+    
+    console.log(`Checking test: "${testName}" for vendor: "${vendorName}"`);
+    
+    if (testName.includes('SHRINKAGE')) {
+      console.log(`✅ Found shrinkage test for vendor: ${vendorName}`);
       
       // Find matching shrinkage results for this vendor
-      const vendorShrinkageData = shrinkageResults.filter(shrinkage => 
-        shrinkage.vendorName === vendorName
-      );
+      const vendorShrinkageData = shrinkageResults.filter(shrinkage => {
+        const shrinkageVendor = shrinkage.vendorName || '';
+        console.log(`Comparing: "${vendorName}" with "${shrinkageVendor}"`);
+        return shrinkageVendor === vendorName;
+      });
+      
+      console.log(`Found ${vendorShrinkageData.length} shrinkage results for ${vendorName}`);
       
       if (vendorShrinkageData.length > 0) {
         // Check if both FRONT EPE and BACK EVA pass for this vendor
@@ -419,28 +529,45 @@ function updateTestDataWithShrinkageResults(testData, shrinkageResults) {
           item.encapsulantType === 'BACK EVA'
         );
         
+        console.log(`Front EPE result:`, frontEpeResult);
+        console.log(`Back EVA result:`, backEvaResult);
+        
         let overallResult = 'FAIL';
         
-        // Both FRONT EPE and BACK EVA must pass for overall pass
+        // FIXED LOGIC: Both FRONT EPE and BACK EVA must pass for overall pass
         if (frontEpeResult && backEvaResult) {
           if (frontEpeResult.finalStatus === 'PASS' && backEvaResult.finalStatus === 'PASS') {
             overallResult = 'PASS';
+            console.log(`✅ Both FRONT EPE and BACK EVA passed for ${vendorName}`);
+          } else {
+            console.log(`❌ One or both failed - Front: ${frontEpeResult.finalStatus}, Back: ${backEvaResult.finalStatus}`);
           }
-        } else if (frontEpeResult && frontEpeResult.finalStatus === 'PASS') {
-          // Only one type tested and it passed
+        } else if (frontEpeResult && frontEpeResult.finalStatus === 'PASS' && !backEvaResult) {
+          // Only FRONT EPE tested and it passed
           overallResult = 'PASS';
-        } else if (backEvaResult && backEvaResult.finalStatus === 'PASS') {
-          // Only one type tested and it passed
+          console.log(`✅ Only FRONT EPE tested and passed for ${vendorName}`);
+        } else if (backEvaResult && backEvaResult.finalStatus === 'PASS' && !frontEpeResult) {
+          // Only BACK EVA tested and it passed
           overallResult = 'PASS';
+          console.log(`✅ Only BACK EVA tested and passed for ${vendorName}`);
+        } else {
+          console.log(`❌ No valid results found for ${vendorName}`);
         }
         
-        // Update the test result
+        // IMPORTANT: Update the TEST RESULT field directly
         testRow['TEST RESULT'] = overallResult;
         testRow['SHRINKAGE_CALCULATION_DETAILS'] = {
           frontEpe: frontEpeResult,
           backEva: backEvaResult,
-          overallResult: overallResult
+          overallResult: overallResult,
+          calculatedAt: new Date().toISOString(),
+          vendorName: vendorName
         };
+        
+        console.log(`🔄 Updated test result for ${vendorName}: ${overallResult}`);
+      } else {
+        console.log(`⚠️ No shrinkage calculation data found for vendor: ${vendorName}`);
+        // Keep the original test result if no calculation data is available
       }
     }
     
@@ -1167,6 +1294,9 @@ app.get('/api/test-data', authenticateMicrosoftToken, (req, res) => {
 // Replace the shrinkage reading section in /api/test-data endpoint
 
 // Check for shrinkage tests and read Shrinkage if needed
+// REPLACE this section in your /api/test-data endpoint:
+// Starting from "Check for shrinkage tests and read Shrinkage if needed"
+
 const hasShrinkageTests = rawData.some(row => 
   row['TEST NAME'] && row['TEST NAME'].toUpperCase().includes('SHRINKAGE')
 );
@@ -1177,44 +1307,84 @@ if (hasShrinkageTests) {
   const shrinkageSheet = workbook.Sheets[shrinkageSheetName];
   
   if (shrinkageSheet) {
-    console.log('Found shrinkage tests, reading Shrinkage sheet...');
+    console.log('📊 Found shrinkage tests, reading Shrinkage sheet...');
     
-    // Read from row 4 since headers are in row 1-2, data starts from row 4
-    const shrinkageRawData = xlsx.utils.sheet_to_json(shrinkageSheet, { 
-      range: 3, // Start from row 4 (0-indexed = 3)
-      defval: '' // Use empty string for missing values
-    });
-    
-    console.log('Sample shrinkage data structure:', Object.keys(shrinkageRawData[0] || {}));
-    console.log('First shrinkage row:', shrinkageRawData[0]);
-    
-    // Filter for valid data - the Excel shows ENCAPSULANT TYPE and VENDOR NAME
-    const validShrinkageData = shrinkageRawData.filter(row => 
-      row['VENDOR NAME'] && row['ENCAPSULANT TYPE'] &&
-      (row['ENCAPSULANT TYPE'] === 'FRONT EPE' || row['ENCAPSULANT TYPE'] === 'BACK EVA')
-    );
-    
-    console.log(`Found ${validShrinkageData.length} valid shrinkage data rows`);
-    
-    if (validShrinkageData.length > 0) {
-      shrinkageResults = calculateShrinkageResults(validShrinkageData);
-      console.log(`Calculated shrinkage results for ${shrinkageResults.length} entries`);
-      
-      // Log calculated results for debugging
-      shrinkageResults.forEach((result, index) => {
-        if (index < 3) {
-          console.log(`Shrinkage result ${index + 1}:`, {
-            vendor: result.vendorName,
-            type: result.encapsulantType,
-            tdDiff: result.tdDifference,
-            mdDiff: result.mdDifference,
-            final: result.finalStatus
-          });
-        }
+    // FIXED: Read the sheet structure more carefully
+    try {
+      // Read raw data to understand the structure
+      const fullShrinkageData = xlsx.utils.sheet_to_json(shrinkageSheet, { 
+        header: 1, // Get raw array format
+        defval: ''
       });
+      
+      console.log('Shrinkage sheet structure:');
+      console.log('Row 0 (first row):', fullShrinkageData[0]);
+      console.log('Row 1 (second row):', fullShrinkageData[1]);
+      console.log('Row 2 (third row):', fullShrinkageData[2]);
+      console.log('Row 3 (data row):', fullShrinkageData[3]);
+      
+      // Try reading from row 3 (where data starts) with auto-generated headers
+      const shrinkageRawData = xlsx.utils.sheet_to_json(shrinkageSheet, { 
+        range: 3, // Start from row 4 (0-indexed = 3) where data begins
+        defval: ''
+        // Let xlsx auto-generate headers from the structure
+      });
+      
+      console.log(`Read ${shrinkageRawData.length} shrinkage data rows`);
+      if (shrinkageRawData.length > 0) {
+        console.log('Available columns:', Object.keys(shrinkageRawData[0]));
+        console.log('Sample shrinkage row:', shrinkageRawData[0]);
+      }
+      
+      // Filter for valid data rows
+      const validShrinkageData = shrinkageRawData.filter(row => {
+        // Check multiple possible column names for vendor
+        const vendorName = row['VENDOR NAME'] || row['Vendor Name'] || row['VENDOR_NAME'] || 
+                          row['vendor name'] || row['Vendor'] || '';
+        
+        // Check multiple possible column names for type
+        const encapsulantType = row['ENCAPSULANT TYPE'] || row['Encapsulant Type'] || 
+                               row['ENCAPSULANT_TYPE'] || row['encapsulant type'] || 
+                               row['Type'] || row['TYPE'] || '';
+        
+        const hasVendor = vendorName && vendorName.trim() !== '';
+        const hasValidType = encapsulantType && 
+          (encapsulantType.includes('FRONT EPE') || encapsulantType.includes('BACK EVA') ||
+           encapsulantType.includes('Front EPE') || encapsulantType.includes('Back EVA'));
+        
+        console.log(`Row validation - Vendor: "${vendorName}", Type: "${encapsulantType}", Valid: ${hasVendor && hasValidType}`);
+        
+        return hasVendor && hasValidType;
+      });
+      
+      console.log(`✅ Found ${validShrinkageData.length} valid shrinkage data rows`);
+      
+      if (validShrinkageData.length > 0) {
+        shrinkageResults = calculateShrinkageResults(validShrinkageData);
+        console.log(`🎯 Calculated shrinkage results for ${shrinkageResults.length} entries`);
+        
+        // Log the calculated results for debugging
+        shrinkageResults.forEach((result, index) => {
+          if (index < 3) {
+            console.log(`Shrinkage result ${index + 1}:`, {
+              vendor: result.vendorName,
+              type: result.encapsulantType,
+              tdDiff: result.tdDifference,
+              mdDiff: result.mdDifference,
+              final: result.finalStatus
+            });
+          }
+        });
+      } else {
+        console.log('⚠️ No valid shrinkage data found after filtering');
+        console.log('Available columns in first row:', Object.keys(shrinkageRawData[0] || {}));
+      }
+    } catch (shrinkageError) {
+      console.error('❌ Error processing shrinkage sheet:', shrinkageError);
+      console.log('Available sheet names:', workbook.SheetNames);
     }
   } else {
-    console.warn('Shrinkage tests found but Shrinkage sheet not available for calculations');
+    console.warn('❌ Shrinkage tests found but Shrinkage sheet not available for calculations');
   }
 }
 
