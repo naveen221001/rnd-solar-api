@@ -241,6 +241,16 @@ def main():
     else:
         print("WARNING: CHAMBER_TESTS_URL environment variable not set")
         success = False
+
+
+    rnd_todos_url = os.environ.get("RND_TODOS_URL")
+    if rnd_todos_url:
+        print("\n=== Processing R&D Todos file ===")
+        result = download_file(rnd_todos_url, "data/RND_Todos.xlsx")
+        success = result and success
+    else:
+        print("WARNING: RND_TODOS_URL environment variable not set")
+        success = False
     # Always force changes to be recognized
     force_changes()
     
