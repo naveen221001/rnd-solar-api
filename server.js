@@ -2280,6 +2280,600 @@ app.get('/api/chamber-data', authenticateMicrosoftToken, (req, res) => {
   }
 });
 
+
+// Add these API endpoints to your existing server.js file
+
+// API endpoint for R&D todos data - WITH AUTHENTICATION
+app.get('/api/todos', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/todos from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    const requestInfo = {
+      timestamp: new Date().toISOString(),
+      user: userEmail,
+      query: req.query,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'cache-control': req.headers['cache-control']
+      }
+    };
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'R&D Todos Excel file not found',
+        message: 'The R&D Todos file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading R&D Todos Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read R&D Todos Excel file',
+        details: readError.message,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    console.log('Available sheets in R&D Todos workbook:', workbook.SheetNames);
+    
+    // Read Todos sheet
+    const todosSheetName = 'Todos';
+    const todosSheet = workbook.Sheets[todosSheetName];
+    if (!todosSheet) {
+      return res.status(404).json({ 
+        error: `${todosSheetName} sheet not found in Excel file`,
+        availableSheets: workbook.SheetNames,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Read Updates sheet (optional)
+    const updatesSheetName = 'Updates';
+    const updatesSheet = workbook.Sheets[updatesSheetName];
+    
+    // Convert todos to JSON
+    const todosRawData = xlsx.utils.sheet_to_json(todosSheet);
+    console.log(`Processed ${todosRawData.length} rows from ${todosSheetName} sheet`);
+    
+    // Convert updates to JSON if sheet exists
+    let updatesRawData = [];
+    if (updatesSheet) {
+      updatesRawData = xlsx.utils.sheet_to_json(updatesSheet);
+      console.log(`Processed ${updatesRawData.length} rows from ${updatesSheetName} sheet`);
+    } else {
+      console.warn(`${updatesSheetName} sheet not found. Todos will have no update history.`);
+    }
+    
+    // Process the data
+    const processedTodos = todosRawData.map(todo => {
+      // Parse dates
+      const dueDate = parseExcelDate(todo['DUE_DATE']);
+      const createdDate = parseExcelDate(todo['CREATED_DATE']);
+      
+      // Get updates for this todo
+      const todoUpdates = updatesRawData
+        .filter(update => update['TODO_ID'] === todo['ID'])
+        .map(update => ({
+          date: parseExcelDate(update['UPDATE_DATE']),
+          status: update['STATUS'] || '',
+          note: update['NOTE'] || '',
+          meetingDate: parseExcelDate(update['MEETING_DATE'])
+        }))
+        .filter(update => update.date) // Filter out invalid dates
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+      
+      // Get unique meeting dates
+      const meetingDates = [...new Set(
+        todoUpdates
+          .map(u => u.meetingDate)
+          .filter(Boolean)
+          .map(date => date.toISOString().split('T')[0])
+      )];
+      
+      // Parse responsibility (comma-separated team member codes)
+      const responsibility = todo['RESPONSIBILITY'] 
+        ? todo['RESPONSIBILITY'].split(',').map(r => r.trim()).filter(Boolean)
+        : [];
+      
+      return {
+        id: todo['ID'] || 0,
+        issue: todo['ISSUE'] || '',
+        responsibility: responsibility,
+        status: todo['STATUS'] || 'Pending',
+        priority: todo['PRIORITY'] || 'Medium',
+        category: todo['CATEGORY'] || 'General',
+        dueDate: dueDate ? dueDate.toISOString().split('T')[0] : null,
+        createdDate: createdDate ? createdDate.toISOString().split('T')[0] : null,
+        updates: todoUpdates.map(update => ({
+          ...update,
+          date: update.date ? update.date.toISOString().split('T')[0] : null,
+          meetingDate: update.meetingDate ? update.meetingDate.toISOString().split('T')[0] : null
+        })),
+        meetingDates: meetingDates
+      };
+    });
+    
+    // Filter out invalid todos
+    const validTodos = processedTodos.filter(todo => todo.id && todo.issue);
+    
+    console.log(`Returning ${validTodos.length} valid R&D todos`);
+    res.json(validTodos);
+    
+  } catch (error) {
+    console.error('Error processing R&D Todos request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process R&D Todos request', 
+      details: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
+// API endpoint to add new todo - WITH AUTHENTICATION
+app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    const todoData = req.body;
+    
+    console.log(`API request to add todo from ${userMap[userEmail] || userEmail}:`, todoData);
+    
+    // Validate required fields
+    if (!todoData.issue || !todoData.responsibility || todoData.responsibility.length === 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Issue description and responsibility are required'
+      });
+    }
+    
+    // In a real implementation, you would:
+    // 1. Read the existing Excel file
+    // 2. Generate a new ID (max ID + 1)
+    // 3. Add the new todo to the Todos sheet
+    // 4. Save the Excel file
+    // 5. Trigger a sync to OneDrive
+    
+    // For now, return success with mock data
+    const newTodo = {
+      id: Date.now(), // Mock ID generation
+      issue: todoData.issue,
+      responsibility: todoData.responsibility,
+      status: 'Pending',
+      priority: todoData.priority || 'Medium',
+      category: todoData.category || 'General',
+      dueDate: todoData.dueDate,
+      createdDate: new Date().toISOString().split('T')[0],
+      updates: [],
+      meetingDates: []
+    };
+    
+    console.log(`Mock todo created:`, newTodo);
+    res.json(newTodo);
+    
+  } catch (error) {
+    console.error('Error adding todo:', error);
+    res.status(500).json({ 
+      error: 'Failed to add todo', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint to update todo status - WITH AUTHENTICATION
+app.put('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    const todoId = parseInt(req.params.id);
+    const updateData = req.body;
+    
+    console.log(`API request to update todo ${todoId} from ${userMap[userEmail] || userEmail}:`, updateData);
+    
+    // Validate required fields
+    if (!updateData.status || !updateData.note) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Status and note are required for updates'
+      });
+    }
+    
+    // In a real implementation, you would:
+    // 1. Read the existing Excel file
+    // 2. Update the todo status in the Todos sheet
+    // 3. Add a new entry to the Updates sheet
+    // 4. Save the Excel file
+    // 5. Trigger a sync to OneDrive
+    
+    // Mock response
+    const updateResponse = {
+      success: true,
+      message: 'Todo updated successfully',
+      update: {
+        todoId: todoId,
+        date: updateData.meetingDate || new Date().toISOString().split('T')[0],
+        status: updateData.status,
+        note: updateData.note,
+        updatedBy: userEmail
+      }
+    };
+    
+    console.log(`Mock todo update:`, updateResponse);
+    res.json(updateResponse);
+    
+  } catch (error) {
+    console.error('Error updating todo:', error);
+    res.status(500).json({ 
+      error: 'Failed to update todo', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint to delete todo - WITH AUTHENTICATION
+app.delete('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    const todoId = parseInt(req.params.id);
+    
+    console.log(`API request to delete todo ${todoId} from ${userMap[userEmail] || userEmail}`);
+    
+    // In a real implementation, you would:
+    // 1. Read the existing Excel file
+    // 2. Remove the todo from the Todos sheet
+    // 3. Remove related updates from the Updates sheet
+    // 4. Save the Excel file
+    // 5. Trigger a sync to OneDrive
+    
+    // Mock response
+    const deleteResponse = {
+      success: true,
+      message: 'Todo deleted successfully',
+      deletedId: todoId,
+      deletedBy: userEmail
+    };
+    
+    console.log(`Mock todo deletion:`, deleteResponse);
+    res.json(deleteResponse);
+    
+  } catch (error) {
+    console.error('Error deleting todo:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete todo', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint for meeting summary - WITH AUTHENTICATION
+app.get('/api/meetings', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/meetings from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'R&D Todos Excel file not found',
+        message: 'The R&D Todos file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading R&D Todos Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read R&D Todos Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read Meetings sheet (optional)
+    const meetingsSheetName = 'Meetings';
+    const meetingsSheet = workbook.Sheets[meetingsSheetName];
+    
+    let meetingsData = [];
+    if (meetingsSheet) {
+      const meetingsRawData = xlsx.utils.sheet_to_json(meetingsSheet);
+      
+      meetingsData = meetingsRawData.map(meeting => ({
+        date: parseExcelDate(meeting['MEETING_DATE']),
+        attendees: meeting['ATTENDEES'] ? meeting['ATTENDEES'].split(',').map(a => a.trim()) : [],
+        topicsDiscussed: meeting['TOPICS_DISCUSSED'] || 0,
+        notes: meeting['NOTES'] || ''
+      })).filter(meeting => meeting.date).sort((a, b) => new Date(b.date) - new Date(a.date));
+    } else {
+      console.warn(`${meetingsSheetName} sheet not found. Using empty meetings data.`);
+    }
+    
+    // Also get meeting dates from Updates sheet to show meeting activity
+    const updatesSheet = workbook.Sheets['Updates'];
+    let meetingDatesFromUpdates = [];
+    
+    if (updatesSheet) {
+      const updatesRawData = xlsx.utils.sheet_to_json(updatesSheet);
+      meetingDatesFromUpdates = [...new Set(
+        updatesRawData
+          .map(update => parseExcelDate(update['MEETING_DATE']))
+          .filter(Boolean)
+          .map(date => date.toISOString().split('T')[0])
+      )].sort((a, b) => new Date(b) - new Date(a));
+    }
+    
+    console.log(`Returning ${meetingsData.length} meetings and ${meetingDatesFromUpdates.length} meeting dates from updates`);
+    
+    res.json({
+      meetings: meetingsData.map(meeting => ({
+        ...meeting,
+        date: meeting.date ? meeting.date.toISOString().split('T')[0] : null
+      })),
+      meetingDatesFromUpdates: meetingDatesFromUpdates,
+      totalMeetings: meetingsData.length + meetingDatesFromUpdates.length
+    });
+    
+  } catch (error) {
+    console.error('Error processing meetings request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process meetings request', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint to get todo statistics - WITH AUTHENTICATION
+app.get('/api/todos/stats', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/todos/stats from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'R&D Todos Excel file not found',
+        message: 'The R&D Todos file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading R&D Todos Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read R&D Todos Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read Todos sheet
+    const todosSheet = workbook.Sheets['Todos'];
+    if (!todosSheet) {
+      return res.status(404).json({ 
+        error: 'Todos sheet not found in Excel file'
+      });
+    }
+    
+    const todosRawData = xlsx.utils.sheet_to_json(todosSheet);
+    
+    // Calculate statistics
+    const stats = {
+      total: todosRawData.length,
+      byStatus: {},
+      byPriority: {},
+      byCategory: {},
+      byResponsibility: {},
+      overdue: 0,
+      dueThisWeek: 0,
+      dueToday: 0,
+      completedThisMonth: 0,
+      avgCompletionTime: 0
+    };
+    
+    const today = new Date();
+    const oneWeekFromNow = new Date(today.getTime() + (7 * 24 * 60 * 60 * 1000));
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    let completedTodos = [];
+    
+    todosRawData.forEach(todo => {
+      const status = todo['STATUS'] || 'Pending';
+      const priority = todo['PRIORITY'] || 'Medium';
+      const category = todo['CATEGORY'] || 'General';
+      const responsibility = todo['RESPONSIBILITY'] || '';
+      const dueDate = parseExcelDate(todo['DUE_DATE']);
+      const createdDate = parseExcelDate(todo['CREATED_DATE']);
+      
+      // Count by status
+      stats.byStatus[status] = (stats.byStatus[status] || 0) + 1;
+      
+      // Count by priority
+      stats.byPriority[priority] = (stats.byPriority[priority] || 0) + 1;
+      
+      // Count by category
+      stats.byCategory[category] = (stats.byCategory[category] || 0) + 1;
+      
+      // Count by responsibility
+      if (responsibility) {
+        responsibility.split(',').forEach(person => {
+          const trimmedPerson = person.trim();
+          if (trimmedPerson) {
+            stats.byResponsibility[trimmedPerson] = (stats.byResponsibility[trimmedPerson] || 0) + 1;
+          }
+        });
+      }
+      
+      // Check due dates
+      if (dueDate && status !== 'Done') {
+        const dueDateObj = new Date(dueDate);
+        
+        if (dueDateObj < today) {
+          stats.overdue++;
+        } else if (dueDateObj <= oneWeekFromNow) {
+          stats.dueThisWeek++;
+        }
+        
+        if (dueDateObj.toDateString() === today.toDateString()) {
+          stats.dueToday++;
+        }
+      }
+      
+      // Check completed this month
+      if (status === 'Done' && createdDate) {
+        const createdDateObj = new Date(createdDate);
+        if (createdDateObj >= startOfMonth) {
+          stats.completedThisMonth++;
+        }
+        
+        // For average completion time calculation
+        if (dueDate) {
+          completedTodos.push({
+            created: createdDateObj,
+            due: new Date(dueDate)
+          });
+        }
+      }
+    });
+    
+    // Calculate average completion time (for completed todos)
+    if (completedTodos.length > 0) {
+      const totalDays = completedTodos.reduce((sum, todo) => {
+        const days = Math.abs((todo.due - todo.created) / (1000 * 60 * 60 * 24));
+        return sum + days;
+      }, 0);
+      stats.avgCompletionTime = Math.round(totalDays / completedTodos.length);
+    }
+    
+    console.log(`Returning statistics for ${stats.total} todos`);
+    res.json(stats);
+    
+  } catch (error) {
+    console.error('Error processing todos stats request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process todos stats request', 
+      details: error.message
+    });
+  }
+});
+
+// Update your server startup section to include the new todos endpoints
+// Add this to your console.log statements when the server starts:
+console.log(`📋 R&D Todos API available at http://localhost:${PORT}/api/todos`);
+console.log(`📊 Todos Statistics API available at http://localhost:${PORT}/api/todos/stats`);
+console.log(`📅 Meetings API available at http://localhost:${PORT}/api/meetings`);
+
+// Also update your health check endpoint to include todos file info
+// In your existing health check endpoint, add this to the excelFiles object:
+// rnbTodos: checkExcelFile('RND_Todos.xlsx'),
+
+// Add this helper function for Excel writing (for future use)
+function updateTodosExcel(todosData, updatesData, meetingsData) {
+  try {
+    const filePath = path.join(__dirname, 'data', 'RND_Todos.xlsx');
+    
+    // Create a new workbook
+    const workbook = xlsx.utils.book_new();
+    
+    // Create Todos sheet
+    const todosSheet = xlsx.utils.json_to_sheet(todosData);
+    xlsx.utils.book_append_sheet(workbook, todosSheet, 'Todos');
+    
+    // Create Updates sheet
+    if (updatesData && updatesData.length > 0) {
+      const updatesSheet = xlsx.utils.json_to_sheet(updatesData);
+      xlsx.utils.book_append_sheet(workbook, updatesSheet, 'Updates');
+    }
+    
+    // Create Meetings sheet
+    if (meetingsData && meetingsData.length > 0) {
+      const meetingsSheet = xlsx.utils.json_to_sheet(meetingsData);
+      xlsx.utils.book_append_sheet(workbook, meetingsSheet, 'Meetings');
+    }
+    
+    // Write the file
+    xlsx.writeFile(workbook, filePath);
+    
+    console.log(`Updated RND_Todos.xlsx with ${todosData.length} todos, ${updatesData?.length || 0} updates, ${meetingsData?.length || 0} meetings`);
+    return true;
+    
+  } catch (error) {
+    console.error('Error updating todos Excel file:', error);
+    return false;
+  }
+}
+
+// API endpoint to export todos data - WITH AUTHENTICATION
+app.get('/api/todos/export', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/todos/export from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'R&D Todos Excel file not found'
+      });
+    }
+    
+    // Send the file for download
+    res.download(fileInfo.path, 'RND_Todos_Export.xlsx', (err) => {
+      if (err) {
+        console.error('Error sending file:', err);
+        res.status(500).json({ error: 'Failed to export file' });
+      } else {
+        console.log('File exported successfully');
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error exporting todos file:', error);
+    res.status(500).json({ 
+      error: 'Failed to export todos file', 
+      details: error.message
+    });
+  }
+});
 // Separate API endpoint for detailed shrinkage test analysis - WITH AUTHENTICATION
 app.get('/api/shrinkage-tests', authenticateMicrosoftToken, (req, res) => {
   try {
