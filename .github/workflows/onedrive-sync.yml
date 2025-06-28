@@ -41,6 +41,7 @@ jobs:
           LINE_TRIALS_URL: ${{ secrets.LINE_TRIALS_URL }}
           CERTIFICATIONS_URL: ${{ secrets.CERTIFICATIONS_URL }}
           CHAMBER_TESTS_URL: ${{ secrets.CHAMBER_TESTS_URL }} 
+          RND_TODOS_URL: ${{ secrets.RND_TODOS_URL }}
           
       - name: Check downloaded files
         run: |
