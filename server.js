@@ -2430,6 +2430,9 @@ app.get('/api/todos', authenticateMicrosoftToken, (req, res) => {
 });
 
 // API endpoint to add new todo - WITH AUTHENTICATION
+// Replace your existing POST /api/todos endpoint with this working version
+// that actually writes to the Excel file
+
 app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
   try {
     const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
@@ -2445,40 +2448,121 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
       });
     }
     
-    // In a real implementation, you would:
-    // 1. Read the existing Excel file
-    // 2. Generate a new ID (max ID + 1)
-    // 3. Add the new todo to the Todos sheet
-    // 4. Save the Excel file
-    // 5. Trigger a sync to OneDrive
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'R&D Todos Excel file not found',
+        message: 'The R&D Todos file has not been synced yet from OneDrive.'
+      });
+    }
     
-    // For now, return success with mock data
+    // Read the existing Excel file
+    const excelFilePath = fileInfo.path;
+    let workbook;
+    
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading R&D Todos Excel file for POST:', readError);
+      return res.status(500).json({
+        error: 'Failed to read R&D Todos Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Get the Todos sheet
+    const todosSheetName = 'Todos';
+    let todosSheet = workbook.Sheets[todosSheetName];
+    
+    if (!todosSheet) {
+      return res.status(500).json({ 
+        error: `${todosSheetName} sheet not found in Excel file`,
+        availableSheets: workbook.SheetNames
+      });
+    }
+    
+    // Read existing todos to get the next ID
+    const existingTodos = xlsx.utils.sheet_to_json(todosSheet);
+    console.log(`Found ${existingTodos.length} existing todos`);
+    
+    // Generate new ID (max existing ID + 1, or 1 if no todos exist)
+    let newId = 1;
+    if (existingTodos.length > 0) {
+      const maxId = Math.max(...existingTodos.map(todo => parseInt(todo['ID']) || 0));
+      newId = maxId + 1;
+    }
+    
+    // Create new todo object
     const newTodo = {
-      id: Date.now(), // Mock ID generation
+      'ID': newId,
+      'ISSUE': todoData.issue,
+      'RESPONSIBILITY': Array.isArray(todoData.responsibility) ? todoData.responsibility.join(',') : todoData.responsibility,
+      'STATUS': 'Pending',
+      'PRIORITY': todoData.priority || 'Medium',
+      'CATEGORY': todoData.category || 'General',
+      'DUE_DATE': todoData.dueDate ? new Date(todoData.dueDate) : null,
+      'CREATED_DATE': new Date()
+    };
+    
+    console.log('Creating new todo:', newTodo);
+    
+    // Add new todo to existing data
+    const updatedTodos = [...existingTodos, newTodo];
+    
+    // Create new sheet with updated data
+    const newTodosSheet = xlsx.utils.json_to_sheet(updatedTodos);
+    
+    // Replace the old sheet with the new one
+    workbook.Sheets[todosSheetName] = newTodosSheet;
+    
+    // Write the updated workbook back to file
+    try {
+      xlsx.writeFile(workbook, excelFilePath);
+      console.log('✅ Successfully wrote updated todos to Excel file');
+    } catch (writeError) {
+      console.error('Error writing to Excel file:', writeError);
+      return res.status(500).json({
+        error: 'Failed to save todo to Excel file',
+        details: writeError.message
+      });
+    }
+    
+    // Return the new todo in the format expected by the frontend
+    const responseData = {
+      id: newId,
       issue: todoData.issue,
-      responsibility: todoData.responsibility,
+      responsibility: Array.isArray(todoData.responsibility) ? todoData.responsibility : todoData.responsibility.split(','),
       status: 'Pending',
       priority: todoData.priority || 'Medium',
       category: todoData.category || 'General',
-      dueDate: todoData.dueDate,
+      dueDate: todoData.dueDate || null,
       createdDate: new Date().toISOString().split('T')[0],
       updates: [],
       meetingDates: []
     };
     
-    console.log(`Mock todo created:`, newTodo);
-    res.json(newTodo);
+    console.log(`✅ Todo created successfully with ID: ${newId}`);
+    res.json(responseData);
     
   } catch (error) {
     console.error('Error adding todo:', error);
     res.status(500).json({ 
       error: 'Failed to add todo', 
-      details: error.message
+      details: error.message,
+      stack: error.stack
     });
   }
 });
 
-// API endpoint to update todo status - WITH AUTHENTICATION
+// Also, let's fix the PUT endpoint to actually update the Excel file
 app.put('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
   try {
     const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
@@ -2495,14 +2579,83 @@ app.put('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
       });
     }
     
-    // In a real implementation, you would:
-    // 1. Read the existing Excel file
-    // 2. Update the todo status in the Todos sheet
-    // 3. Add a new entry to the Updates sheet
-    // 4. Save the Excel file
-    // 5. Trigger a sync to OneDrive
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'R&D Todos Excel file not found'
+      });
+    }
     
-    // Mock response
+    // Read the existing Excel file
+    const excelFilePath = fileInfo.path;
+    let workbook;
+    
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file for update:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Update the todo in Todos sheet
+    const todosSheet = workbook.Sheets['Todos'];
+    if (todosSheet) {
+      const todos = xlsx.utils.sheet_to_json(todosSheet);
+      const todoIndex = todos.findIndex(todo => parseInt(todo['ID']) === todoId);
+      
+      if (todoIndex !== -1) {
+        todos[todoIndex]['STATUS'] = updateData.status;
+        // Update the Todos sheet
+        const newTodosSheet = xlsx.utils.json_to_sheet(todos);
+        workbook.Sheets['Todos'] = newTodosSheet;
+      }
+    }
+    
+    // Add update record to Updates sheet
+    const updatesSheet = workbook.Sheets['Updates'];
+    let updates = [];
+    if (updatesSheet) {
+      updates = xlsx.utils.sheet_to_json(updatesSheet);
+    }
+    
+    // Add new update record
+    const newUpdate = {
+      'TODO_ID': todoId,
+      'UPDATE_DATE': new Date(),
+      'STATUS': updateData.status,
+      'NOTE': updateData.note,
+      'MEETING_DATE': updateData.meetingDate ? new Date(updateData.meetingDate) : new Date()
+    };
+    
+    updates.push(newUpdate);
+    
+    // Create/update the Updates sheet
+    const newUpdatesSheet = xlsx.utils.json_to_sheet(updates);
+    workbook.Sheets['Updates'] = newUpdatesSheet;
+    
+    // Write back to file
+    try {
+      xlsx.writeFile(workbook, excelFilePath);
+      console.log('✅ Successfully updated todo in Excel file');
+    } catch (writeError) {
+      console.error('Error writing update to Excel file:', writeError);
+      return res.status(500).json({
+        error: 'Failed to save update to Excel file',
+        details: writeError.message
+      });
+    }
+    
     const updateResponse = {
       success: true,
       message: 'Todo updated successfully',
@@ -2515,7 +2668,7 @@ app.put('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
       }
     };
     
-    console.log(`Mock todo update:`, updateResponse);
+    console.log(`✅ Todo ${todoId} updated successfully`);
     res.json(updateResponse);
     
   } catch (error) {
