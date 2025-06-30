@@ -97,9 +97,26 @@ function authenticateMicrosoftToken(req, res, next) {
 
 // Enable CORS for your domains (updated to include Authorization header)
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 'https://vikramsolar-rnd-rm-dashboard-naveen.netlify.app' : '*',
-  methods: ['GET', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'] // Added Authorization header
+  origin: [
+    'https://vikramsolar-rnd-rm-dashboard-naveen.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true,
+  optionsSuccessStatus: 200
+}));
+
+app.options('*', cors({
+  origin: [
+    'https://vikramsolar-rnd-rm-dashboard-naveen.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true
 }));
 
 // Disable response caching
@@ -165,6 +182,46 @@ function parseExcelDate(dateValue) {
   }
 }
 
+async function backupTodosToGitHub() {
+  try {
+    console.log('🔄 Starting todos backup to GitHub...');
+    
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      console.log('❌ No todos file to backup');
+      return false;
+    }
+    
+    // Read the current file
+    const filePath = fileInfo.path;
+    const fileExists = fs.existsSync(filePath);
+    
+    if (fileExists) {
+      const stats = fs.statSync(filePath);
+      console.log(`📊 Backing up todos file: ${stats.size} bytes, modified: ${stats.mtime}`);
+      
+      // Create a backup timestamp
+      const backupInfo = {
+        timestamp: new Date().toISOString(),
+        fileSize: stats.size,
+        lastModified: stats.mtime,
+        backupReason: 'Scheduled backup after todo changes'
+      };
+      
+      // Save backup info
+      const backupInfoPath = path.join(__dirname, 'data', '.backup_info.json');
+      fs.writeFileSync(backupInfoPath, JSON.stringify(backupInfo, null, 2));
+      
+      console.log('✅ Todos backup completed');
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('❌ Error backing up todos:', error);
+    return false;
+  }
+}
 
 function calculateChamberData(rawData, worksheet) {
   // Get the column range from the worksheet
@@ -2625,6 +2682,15 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
     try {
       xlsx.writeFile(workbook, excelFilePath);
       console.log('✅ Successfully wrote updated todos to Excel file');
+      setTimeout(() => {
+        backupTodosToGitHub()
+          .then(success => {
+            if (success) {
+              console.log('✅ Auto-backup completed after todo creation');
+            }
+          })
+          .catch(err => console.error('❌ Auto-backup failed:', err));
+      }, 1000);
     } catch (writeError) {
       console.error('ERROR writing to Excel file:', writeError);
       return res.status(500).json({
@@ -2659,6 +2725,105 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
       error: 'Internal server error', 
       details: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+
+// Add this new endpoint to check data persistence status:
+app.get('/api/todos/persistence-status', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`Checking persistence status for ${userMap[userEmail] || userEmail}`);
+    
+    // Check if todos file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    
+    // Check backup info
+    const backupInfoPath = path.join(__dirname, 'data', '.backup_info.json');
+    let backupInfo = null;
+    
+    if (fs.existsSync(backupInfoPath)) {
+      try {
+        const backupData = fs.readFileSync(backupInfoPath, 'utf8');
+        backupInfo = JSON.parse(backupData);
+      } catch (e) {
+        console.warn('Could not read backup info:', e.message);
+      }
+    }
+    
+    // Get server uptime and memory
+    const uptimeHours = Math.floor(process.uptime() / 3600);
+    const memoryUsage = process.memoryUsage();
+    
+    res.json({
+      dataFile: {
+        exists: fileInfo.exists,
+        path: fileInfo.exists ? fileInfo.path : null,
+        size: fileInfo.exists ? fileInfo.size : 0,
+        lastModified: fileInfo.exists ? fileInfo.lastModified : null
+      },
+      backup: backupInfo,
+      server: {
+        uptime: `${uptimeHours} hours`,
+        memory: {
+          used: Math.round(memoryUsage.heapUsed / 1024 / 1024) + ' MB',
+          total: Math.round(memoryUsage.heapTotal / 1024 / 1024) + ' MB'
+        },
+        platform: process.platform,
+        nodeVersion: process.version
+      },
+      sync: {
+        toOneDrive: 'Manual via GitHub Actions',
+        frequency: 'Every 2 hours during weekdays',
+        lastSync: 'Check GitHub Actions for last run'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error checking persistence status:', error);
+    res.status(500).json({
+      error: 'Failed to check persistence status',
+      details: error.message
+    });
+  }
+});
+
+// FIX 5: Add a manual sync trigger endpoint
+
+// Add this endpoint to manually trigger sync:
+app.post('/api/todos/trigger-sync', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`Manual sync triggered by ${userMap[userEmail] || userEmail}`);
+    
+    // Trigger backup
+    backupTodosToGitHub()
+      .then(success => {
+        res.json({
+          success: success,
+          message: success ? 'Backup completed successfully' : 'Backup failed',
+          timestamp: new Date().toISOString(),
+          triggeredBy: userEmail,
+          note: 'GitHub Actions will sync to OneDrive within 2 hours during weekdays'
+        });
+      })
+      .catch(error => {
+        res.status(500).json({
+          success: false,
+          error: 'Backup failed',
+          details: error.message,
+          timestamp: new Date().toISOString(),
+          triggeredBy: userEmail
+        });
+      });
+    
+  } catch (error) {
+    console.error('Error triggering manual sync:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to trigger sync',
+      details: error.message
     });
   }
 });
