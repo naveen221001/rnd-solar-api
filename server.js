@@ -136,6 +136,31 @@ function addDays(date, days) {
   return result;
 }
 
+
+function parseExcelDate(dateValue) {
+  if (dateValue == null) return null;
+  if (dateValue instanceof Date) return dateValue;
+  
+  try {
+    if (typeof dateValue === 'number') {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const millisecondsPerDay = 24 * 60 * 60 * 1000;
+      return new Date(excelEpoch.getTime() + dateValue * millisecondsPerDay);
+    }
+    
+    if (typeof dateValue === 'string' && dateValue.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+      const [day, month, year] = dateValue.split('/');
+      return new Date(Date.UTC(year, month - 1, day));
+    }
+    
+    return new Date(String(dateValue));
+  } catch (e) {
+    console.error('Error parsing date:', dateValue, e);
+    return null;
+  }
+}
+
+
 function calculateChamberData(rawData, worksheet) {
   // Get the column range from the worksheet
   const range = xlsx.utils.decode_range(worksheet['!ref']);
@@ -2302,12 +2327,12 @@ app.get('/api/todos', authenticateMicrosoftToken, (req, res) => {
     // Check if the Excel file exists
     const fileInfo = checkExcelFile('RND_Todos.xlsx');
     if (!fileInfo.exists) {
-      return res.status(404).json({ 
-        error: 'R&D Todos Excel file not found',
-        message: 'The R&D Todos file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
-        fileInfo,
-        requestInfo
-      });
+      console.log('RND_Todos.xlsx not found, creating empty structure...');
+      
+      // Create empty todo structure if file doesn't exist
+      const emptyTodos = [];
+      
+      return res.json(emptyTodos);
     }
     
     // Read the Excel file
@@ -2339,12 +2364,8 @@ app.get('/api/todos', authenticateMicrosoftToken, (req, res) => {
     const todosSheetName = 'Todos';
     const todosSheet = workbook.Sheets[todosSheetName];
     if (!todosSheet) {
-      return res.status(404).json({ 
-        error: `${todosSheetName} sheet not found in Excel file`,
-        availableSheets: workbook.SheetNames,
-        fileInfo,
-        requestInfo
-      });
+      console.log('Todos sheet not found, returning empty array');
+      return res.json([]);
     }
     
     // Read Updates sheet (optional)
@@ -2366,7 +2387,7 @@ app.get('/api/todos', authenticateMicrosoftToken, (req, res) => {
     
     // Process the data
     const processedTodos = todosRawData.map(todo => {
-      // Parse dates
+      // Parse dates safely
       const dueDate = parseExcelDate(todo['DUE_DATE']);
       const createdDate = parseExcelDate(todo['CREATED_DATE']);
       
@@ -2433,6 +2454,7 @@ app.get('/api/todos', authenticateMicrosoftToken, (req, res) => {
 // Replace your existing POST /api/todos endpoint with this working version
 // that actually writes to the Excel file
 
+// Add new todo endpoint (REPLACE EXISTING)
 app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
   try {
     const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
@@ -2448,19 +2470,49 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
       });
     }
     
-    // Check if the Excel file exists
+    // Check if the Excel file exists, create if it doesn't
     const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    let workbook;
+    let excelFilePath = path.join(__dirname, 'data', 'RND_Todos.xlsx');
+    
     if (!fileInfo.exists) {
-      return res.status(404).json({ 
-        error: 'R&D Todos Excel file not found',
-        message: 'The R&D Todos file has not been synced yet from OneDrive.'
-      });
+      console.log('Creating new RND_Todos.xlsx file...');
+      
+      // Create new workbook with proper structure
+      workbook = xlsx.utils.book_new();
+      
+      // Create Todos sheet
+      const todosSheet = xlsx.utils.json_to_sheet([]);
+      xlsx.utils.book_append_sheet(workbook, todosSheet, 'Todos');
+      
+      // Create Updates sheet
+      const updatesSheet = xlsx.utils.json_to_sheet([]);
+      xlsx.utils.book_append_sheet(workbook, updatesSheet, 'Updates');
+      
+      // Create Meetings sheet
+      const meetingsSheet = xlsx.utils.json_to_sheet([]);
+      xlsx.utils.book_append_sheet(workbook, meetingsSheet, 'Meetings');
+      
+      // Create the data directory if it doesn't exist
+      const dataDir = path.dirname(excelFilePath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      
+      // Write the new file
+      try {
+        xlsx.writeFile(workbook, excelFilePath);
+        console.log('✅ Created new RND_Todos.xlsx file');
+      } catch (createError) {
+        console.error('Error creating new Excel file:', createError);
+        return res.status(500).json({
+          error: 'Failed to create new todos file',
+          details: createError.message
+        });
+      }
     }
     
     // Read the existing Excel file
-    const excelFilePath = fileInfo.path;
-    let workbook;
-    
     try {
       workbook = xlsx.readFile(excelFilePath, {
         cellDates: true,
@@ -2483,10 +2535,9 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
     let todosSheet = workbook.Sheets[todosSheetName];
     
     if (!todosSheet) {
-      return res.status(500).json({ 
-        error: `${todosSheetName} sheet not found in Excel file`,
-        availableSheets: workbook.SheetNames
-      });
+      console.log('Todos sheet not found, creating new one...');
+      todosSheet = xlsx.utils.json_to_sheet([]);
+      workbook.Sheets[todosSheetName] = todosSheet;
     }
     
     // Read existing todos to get the next ID
@@ -2619,14 +2670,22 @@ app.put('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
         // Update the Todos sheet
         const newTodosSheet = xlsx.utils.json_to_sheet(todos);
         workbook.Sheets['Todos'] = newTodosSheet;
+        console.log(`Updated todo ${todoId} status to ${updateData.status}`);
+      } else {
+        console.warn(`Todo with ID ${todoId} not found in Todos sheet`);
       }
     }
     
     // Add update record to Updates sheet
-    const updatesSheet = workbook.Sheets['Updates'];
+    let updatesSheet = workbook.Sheets['Updates'];
     let updates = [];
+    
     if (updatesSheet) {
       updates = xlsx.utils.sheet_to_json(updatesSheet);
+    } else {
+      console.log('Updates sheet not found, creating new one...');
+      updatesSheet = xlsx.utils.json_to_sheet([]);
+      workbook.Sheets['Updates'] = updatesSheet;
     }
     
     // Add new update record
@@ -2635,7 +2694,8 @@ app.put('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
       'UPDATE_DATE': new Date(),
       'STATUS': updateData.status,
       'NOTE': updateData.note,
-      'MEETING_DATE': updateData.meetingDate ? new Date(updateData.meetingDate) : new Date()
+      'MEETING_DATE': updateData.meetingDate ? new Date(updateData.meetingDate) : new Date(),
+      'UPDATED_BY': userEmail
     };
     
     updates.push(newUpdate);
@@ -2679,6 +2739,8 @@ app.put('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
     });
   }
 });
+
+
 
 // API endpoint to delete todo - WITH AUTHENTICATION
 app.delete('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
@@ -2798,6 +2860,97 @@ app.get('/api/meetings', authenticateMicrosoftToken, (req, res) => {
     console.error('Error processing meetings request:', error);
     res.status(500).json({ 
       error: 'Failed to process meetings request', 
+      details: error.message
+    });
+  }
+});
+
+app.post('/api/meetings', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    const meetingData = req.body;
+    
+    console.log(`API request to save meeting from ${userMap[userEmail] || userEmail}:`, meetingData);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('RND_Todos.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'R&D Todos Excel file not found'
+      });
+    }
+    
+    // Read the existing Excel file
+    const excelFilePath = fileInfo.path;
+    let workbook;
+    
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file for meeting:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Get or create Meetings sheet
+    let meetingsSheet = workbook.Sheets['Meetings'];
+    let meetings = [];
+    
+    if (meetingsSheet) {
+      meetings = xlsx.utils.sheet_to_json(meetingsSheet);
+    } else {
+      console.log('Meetings sheet not found, creating new one...');
+      meetingsSheet = xlsx.utils.json_to_sheet([]);
+      workbook.Sheets['Meetings'] = meetingsSheet;
+    }
+    
+    // Add new meeting record
+    const newMeeting = {
+      'MEETING_DATE': new Date(meetingData.meetingDate),
+      'ATTENDEES': Array.isArray(meetingData.attendees) ? meetingData.attendees.join(',') : meetingData.attendees,
+      'TOPICS_DISCUSSED': meetingData.topicsDiscussed || 0,
+      'NOTES': meetingData.notes || `Meeting held with ${meetingData.updates?.length || 0} todo updates`,
+      'CREATED_BY': userEmail,
+      'CREATED_AT': new Date()
+    };
+    
+    meetings.push(newMeeting);
+    
+    // Update the Meetings sheet
+    const newMeetingsSheet = xlsx.utils.json_to_sheet(meetings);
+    workbook.Sheets['Meetings'] = newMeetingsSheet;
+    
+    // Write back to file
+    try {
+      xlsx.writeFile(workbook, excelFilePath);
+      console.log('✅ Successfully saved meeting to Excel file');
+    } catch (writeError) {
+      console.error('Error writing meeting to Excel file:', writeError);
+      return res.status(500).json({
+        error: 'Failed to save meeting to Excel file',
+        details: writeError.message
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Meeting saved successfully',
+      meeting: newMeeting
+    });
+    
+  } catch (error) {
+    console.error('Error saving meeting:', error);
+    res.status(500).json({ 
+      error: 'Failed to save meeting', 
       details: error.message
     });
   }
@@ -3983,6 +4136,8 @@ app.get('/api/data-status', authenticateMicrosoftToken, (req, res) => {
     const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
     const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
     const certificationsInfo = checkExcelFile('Certifications.xlsx');
+    const chamberTestsInfo = checkExcelFile('Chamber_Tests.xlsx');
+    const rndTodosInfo = checkExcelFile('RND_Todos.xlsx');
     
     if (!solarLabInfo.exists && !lineTrialsInfo.exists && !certificationsInfo.exists) {
       return res.status(404).json({
@@ -3991,7 +4146,9 @@ app.get('/api/data-status', authenticateMicrosoftToken, (req, res) => {
         files: {
           solarLabInfo,
           lineTrialsInfo,
-          certificationsInfo
+          certificationsInfo,
+          chamberTestsInfo,
+          rndTodosInfo
         },
         user: userEmail
       });
@@ -4057,6 +4214,44 @@ app.get('/api/data-status', authenticateMicrosoftToken, (req, res) => {
       }
     }
     
+    if (chamberTestsInfo.exists) {
+      try {
+        const workbook = xlsx.readFile(chamberTestsInfo.path, { 
+          bookSheets: true,
+          cache: false
+        });
+        fileDetails.chamberTests = {
+          lastUpdated: chamberTestsInfo.lastModified,
+          fileSize: chamberTestsInfo.size,
+          sheets: workbook.SheetNames || []
+        };
+      } catch (e) {
+        fileDetails.chamberTests = {
+          error: `Error reading sheet names: ${e.message}`
+        };
+      }
+    }
+    
+    // ADD THIS SECTION - Process RND Todos file
+    if (rndTodosInfo.exists) {
+      try {
+        const workbook = xlsx.readFile(rndTodosInfo.path, { 
+          bookSheets: true,
+          cache: false
+        });
+        fileDetails.rndTodos = {
+          lastUpdated: rndTodosInfo.lastModified,
+          fileSize: rndTodosInfo.size,
+          sheets: workbook.SheetNames || []
+        };
+      } catch (e) {
+        fileDetails.rndTodos = {
+          error: `Error reading sheet names: ${e.message}`
+        };
+      }
+    }
+
+
     res.json({
       success: true,
       files: fileDetails,
@@ -4222,6 +4417,8 @@ app.get('/health', (req, res) => {
   const solarLabInfo = checkExcelFile('Solar_Lab_Tests.xlsx');
   const lineTrialsInfo = checkExcelFile('Line_Trials.xlsx');
   const certificationsInfo = checkExcelFile('Certifications.xlsx');
+  const chamberTestsInfo = checkExcelFile('Chamber_Tests.xlsx');
+  const rndTodosInfo = checkExcelFile('RND_Todos.xlsx'); // ADD THIS LINE
   
   res.json({ 
     status: 'ok', 
@@ -4231,7 +4428,9 @@ app.get('/health', (req, res) => {
     excelFiles: {
       solarLabTests: solarLabInfo,
       lineTrials: lineTrialsInfo,
-      certifications: certificationsInfo
+      certifications: certificationsInfo,
+      chamberTests: chamberTestsInfo,
+      rndTodos: rndTodosInfo // ADD THIS LINE
     },
     memory: process.memoryUsage(),
     environment: process.env.NODE_ENV || 'development',
