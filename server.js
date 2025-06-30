@@ -2460,13 +2460,53 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
     const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
     const todoData = req.body;
     
-    console.log(`API request to add todo from ${userMap[userEmail] || userEmail}:`, todoData);
+    console.log(`API request to add todo from ${userMap[userEmail] || userEmail}`);
+    console.log('Request body:', JSON.stringify(todoData, null, 2));
+    console.log('Request headers:', req.headers);
     
-    // Validate required fields
-    if (!todoData.issue || !todoData.responsibility || todoData.responsibility.length === 0) {
+    // IMPROVED validation with detailed error messages
+    if (!todoData) {
+      console.error('ERROR: No request body received');
       return res.status(400).json({
-        error: 'Missing required fields',
-        message: 'Issue description and responsibility are required'
+        error: 'Missing request body',
+        message: 'No todo data provided in request body'
+      });
+    }
+    
+    if (!todoData.issue || typeof todoData.issue !== 'string' || !todoData.issue.trim()) {
+      console.error('ERROR: Invalid issue field:', todoData.issue);
+      return res.status(400).json({
+        error: 'Invalid issue field',
+        message: 'Issue description is required and must be a non-empty string',
+        received: typeof todoData.issue
+      });
+    }
+    
+    if (!todoData.responsibility) {
+      console.error('ERROR: Missing responsibility field');
+      return res.status(400).json({
+        error: 'Missing responsibility field',
+        message: 'Responsibility field is required'
+      });
+    }
+    
+    if (!Array.isArray(todoData.responsibility) && typeof todoData.responsibility !== 'string') {
+      console.error('ERROR: Invalid responsibility type:', typeof todoData.responsibility);
+      return res.status(400).json({
+        error: 'Invalid responsibility type',
+        message: 'Responsibility must be an array or string',
+        received: typeof todoData.responsibility
+      });
+    }
+    
+    const responsibilityArray = Array.isArray(todoData.responsibility) ? 
+      todoData.responsibility : [todoData.responsibility];
+      
+    if (responsibilityArray.length === 0) {
+      console.error('ERROR: Empty responsibility array');
+      return res.status(400).json({
+        error: 'Empty responsibility',
+        message: 'At least one team member must be assigned'
       });
     }
     
@@ -2478,42 +2518,42 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
     if (!fileInfo.exists) {
       console.log('Creating new RND_Todos.xlsx file...');
       
+      // Ensure data directory exists
+      const dataDir = path.dirname(excelFilePath);
+      if (!fs.existsSync(dataDir)) {
+        console.log('Creating data directory:', dataDir);
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      
       // Create new workbook with proper structure
       workbook = xlsx.utils.book_new();
       
-      // Create Todos sheet
+      // Create empty sheets
       const todosSheet = xlsx.utils.json_to_sheet([]);
-      xlsx.utils.book_append_sheet(workbook, todosSheet, 'Todos');
-      
-      // Create Updates sheet
       const updatesSheet = xlsx.utils.json_to_sheet([]);
-      xlsx.utils.book_append_sheet(workbook, updatesSheet, 'Updates');
-      
-      // Create Meetings sheet
       const meetingsSheet = xlsx.utils.json_to_sheet([]);
-      xlsx.utils.book_append_sheet(workbook, meetingsSheet, 'Meetings');
       
-      // Create the data directory if it doesn't exist
-      const dataDir = path.dirname(excelFilePath);
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
-      }
+      xlsx.utils.book_append_sheet(workbook, todosSheet, 'Todos');
+      xlsx.utils.book_append_sheet(workbook, updatesSheet, 'Updates');
+      xlsx.utils.book_append_sheet(workbook, meetingsSheet, 'Meetings');
       
       // Write the new file
       try {
         xlsx.writeFile(workbook, excelFilePath);
-        console.log('✅ Created new RND_Todos.xlsx file');
+        console.log('✅ Created new RND_Todos.xlsx file at:', excelFilePath);
       } catch (createError) {
-        console.error('Error creating new Excel file:', createError);
+        console.error('ERROR creating new Excel file:', createError);
         return res.status(500).json({
           error: 'Failed to create new todos file',
-          details: createError.message
+          details: createError.message,
+          path: excelFilePath
         });
       }
     }
     
     // Read the existing Excel file
     try {
+      console.log('Reading Excel file from:', excelFilePath);
       workbook = xlsx.readFile(excelFilePath, {
         cellDates: true,
         dateNF: 'yyyy-mm-dd',
@@ -2522,11 +2562,14 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
         type: 'binary',
         cache: false
       });
+      console.log('✅ Excel file read successfully');
+      console.log('Available sheets:', workbook.SheetNames);
     } catch (readError) {
-      console.error('Error reading R&D Todos Excel file for POST:', readError);
+      console.error('ERROR reading Excel file:', readError);
       return res.status(500).json({
-        error: 'Failed to read R&D Todos Excel file',
-        details: readError.message
+        error: 'Failed to read Excel file',
+        details: readError.message,
+        path: excelFilePath
       });
     }
     
@@ -2544,18 +2587,19 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
     const existingTodos = xlsx.utils.sheet_to_json(todosSheet);
     console.log(`Found ${existingTodos.length} existing todos`);
     
-    // Generate new ID (max existing ID + 1, or 1 if no todos exist)
+    // Generate new ID
     let newId = 1;
     if (existingTodos.length > 0) {
       const maxId = Math.max(...existingTodos.map(todo => parseInt(todo['ID']) || 0));
       newId = maxId + 1;
     }
+    console.log('Generated new ID:', newId);
     
     // Create new todo object
     const newTodo = {
       'ID': newId,
-      'ISSUE': todoData.issue,
-      'RESPONSIBILITY': Array.isArray(todoData.responsibility) ? todoData.responsibility.join(',') : todoData.responsibility,
+      'ISSUE': todoData.issue.trim(),
+      'RESPONSIBILITY': responsibilityArray.join(','),
       'STATUS': 'Pending',
       'PRIORITY': todoData.priority || 'Medium',
       'CATEGORY': todoData.category || 'General',
@@ -2563,15 +2607,13 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
       'CREATED_DATE': new Date()
     };
     
-    console.log('Creating new todo:', newTodo);
+    console.log('Creating new todo object:', newTodo);
     
     // Add new todo to existing data
     const updatedTodos = [...existingTodos, newTodo];
     
     // Create new sheet with updated data
     const newTodosSheet = xlsx.utils.json_to_sheet(updatedTodos);
-    
-    // Replace the old sheet with the new one
     workbook.Sheets[todosSheetName] = newTodosSheet;
     
     // Write the updated workbook back to file
@@ -2579,18 +2621,19 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
       xlsx.writeFile(workbook, excelFilePath);
       console.log('✅ Successfully wrote updated todos to Excel file');
     } catch (writeError) {
-      console.error('Error writing to Excel file:', writeError);
+      console.error('ERROR writing to Excel file:', writeError);
       return res.status(500).json({
         error: 'Failed to save todo to Excel file',
-        details: writeError.message
+        details: writeError.message,
+        path: excelFilePath
       });
     }
     
     // Return the new todo in the format expected by the frontend
     const responseData = {
       id: newId,
-      issue: todoData.issue,
-      responsibility: Array.isArray(todoData.responsibility) ? todoData.responsibility : todoData.responsibility.split(','),
+      issue: todoData.issue.trim(),
+      responsibility: responsibilityArray,
       status: 'Pending',
       priority: todoData.priority || 'Medium',
       category: todoData.category || 'General',
@@ -2601,14 +2644,16 @@ app.post('/api/todos', authenticateMicrosoftToken, (req, res) => {
     };
     
     console.log(`✅ Todo created successfully with ID: ${newId}`);
+    console.log('Response data:', responseData);
     res.json(responseData);
     
   } catch (error) {
-    console.error('Error adding todo:', error);
+    console.error('ERROR in POST /api/todos:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({ 
-      error: 'Failed to add todo', 
+      error: 'Internal server error', 
       details: error.message,
-      stack: error.stack
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
