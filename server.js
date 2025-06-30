@@ -1,3 +1,7 @@
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+
 // Complete server.js - Express server with Microsoft Authentication
 const userMap = {
   "naveen.chamaria@vikramsolar.com": "Naveen Kumar Chamaria",
