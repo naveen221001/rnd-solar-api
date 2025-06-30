@@ -1,5 +1,4 @@
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
 
 
 // Complete server.js - Express server with Microsoft Authentication
@@ -51,6 +50,8 @@ const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 
 const app = express();
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const PORT = process.env.PORT || 3001;
 
 // Microsoft Azure AD configuration
