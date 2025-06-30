@@ -1,6 +1,6 @@
 const sequelize = require('../config/database');
 const Todo = require('./Todo');
-const TodoUpdate = require('./Todoupdate');
+const TodoUpdate = require('./TodoUpdate');
 const Meeting = require('./Meeting');
 
 // Define associations
