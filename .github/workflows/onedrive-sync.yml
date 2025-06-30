@@ -2,9 +2,7 @@ name: Sync Excel Files from OneDrive
 
 on:
   schedule:
-    - cron: '30 9,11,13,15,17 * * 1-5' 
-
-  # Allow manual trigger
+    - cron: '30 9,11,13,15,17 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -33,68 +31,14 @@ jobs:
           ls -la
           mkdir -p data
           
-      - name: Create initial RND_Todos.xlsx if not exists
-        run: |
-          if [ ! -f "data/RND_Todos.xlsx" ]; then
-            echo "Creating initial RND_Todos.xlsx structure..."
-            python -c "
-import pandas as pd
-from datetime import datetime
-import os
-
-# Create empty structure
-todos_df = pd.DataFrame(columns=['ID', 'ISSUE', 'RESPONSIBILITY', 'STATUS', 'PRIORITY', 'CATEGORY', 'DUE_DATE', 'CREATED_DATE'])
-updates_df = pd.DataFrame(columns=['TODO_ID', 'UPDATE_DATE', 'STATUS', 'NOTE', 'MEETING_DATE', 'UPDATED_BY'])
-meetings_df = pd.DataFrame(columns=['MEETING_DATE', 'ATTENDEES', 'TOPICS_DISCUSSED', 'NOTES', 'CREATED_BY', 'CREATED_AT'])
-
-with pd.ExcelWriter('data/RND_Todos.xlsx', engine='openpyxl') as writer:
-    todos_df.to_excel(writer, sheet_name='Todos', index=False)
-    updates_df.to_excel(writer, sheet_name='Updates', index=False)
-    meetings_df.to_excel(writer, sheet_name='Meetings', index=False)
-
-print('Created initial RND_Todos.xlsx structure')
-"
-          else
-            echo "RND_Todos.xlsx already exists, skipping creation"
-          fi
-          
       - name: Fetch Excel files from OneDrive
-        run: |
-          python .github/scripts/download_onedrive_files.py
+        run: python .github/scripts/download_onedrive_files.py
         env:
           SOLAR_LAB_TESTS_URL: ${{ secrets.SOLAR_LAB_TESTS_URL }}
           LINE_TRIALS_URL: ${{ secrets.LINE_TRIALS_URL }}
           CERTIFICATIONS_URL: ${{ secrets.CERTIFICATIONS_URL }}
           CHAMBER_TESTS_URL: ${{ secrets.CHAMBER_TESTS_URL }} 
           RND_TODOS_URL: ${{ secrets.RND_TODOS_URL }}
-          
-      - name: Backup and sync RND_Todos if OneDrive version exists
-        run: |
-          if [ -f "data/RND_Todos.xlsx" ] && [ -s "data/RND_Todos.xlsx" ]; then
-            echo "✅ RND_Todos.xlsx downloaded from OneDrive successfully"
-            ls -la data/RND_Todos.xlsx
-          else
-            echo "⚠️ RND_Todos.xlsx not found or empty from OneDrive"
-            echo "Using local structure or creating new one..."
-            
-            # Create basic structure if file doesn't exist or is empty
-            python -c "
-import pandas as pd
-from datetime import datetime
-import os
-
-todos_df = pd.DataFrame(columns=['ID', 'ISSUE', 'RESPONSIBILITY', 'STATUS', 'PRIORITY', 'CATEGORY', 'DUE_DATE', 'CREATED_DATE'])
-updates_df = pd.DataFrame(columns=['TODO_ID', 'UPDATE_DATE', 'STATUS', 'NOTE', 'MEETING_DATE', 'UPDATED_BY'])
-meetings_df = pd.DataFrame(columns=['MEETING_DATE', 'ATTENDEES', 'TOPICS_DISCUSSED', 'NOTES', 'CREATED_BY', 'CREATED_AT'])
-
-with pd.ExcelWriter('data/RND_Todos.xlsx', engine='openpyxl') as writer:
-    todos_df.to_excel(writer, sheet_name='Todos', index=False)
-    updates_df.to_excel(writer, sheet_name='Updates', index=False)
-    meetings_df.to_excel(writer, sheet_name='Meetings', index=False)
-
-print('Created/Updated RND_Todos.xlsx structure')
-"
-          fi
           
       - name: Check downloaded files
         run: |
@@ -106,47 +50,9 @@ print('Created/Updated RND_Todos.xlsx structure')
             fi
           done
           
-      - name: Validate Excel files
-        run: |
-          python -c "
-import pandas as pd
-import os
-
-files_to_check = [
-    'data/Solar_Lab_Tests.xlsx',
-    'data/Line_Trials.xlsx', 
-    'data/Certifications.xlsx',
-    'data/Chamber_Tests.xlsx',
-    'data/RND_Todos.xlsx'
-]
-
-for file_path in files_to_check:
-    if os.path.exists(file_path):
-        try:
-            # Try to read the Excel file
-            xl = pd.ExcelFile(file_path)
-            sheets = xl.sheet_names
-            print(f'✅ {os.path.basename(file_path)}: {len(sheets)} sheets - {sheets}')
-            
-            # For RND_Todos, ensure required sheets exist
-            if 'RND_Todos.xlsx' in file_path:
-                required_sheets = ['Todos', 'Updates', 'Meetings']
-                missing_sheets = [sheet for sheet in required_sheets if sheet not in sheets]
-                if missing_sheets:
-                    print(f'⚠️ Missing sheets in RND_Todos.xlsx: {missing_sheets}')
-                else:
-                    print(f'✅ RND_Todos.xlsx has all required sheets')
-                    
-        except Exception as e:
-            print(f'❌ Error reading {os.path.basename(file_path)}: {str(e)}')
-    else:
-        print(f'❌ File not found: {os.path.basename(file_path)}')
-"
-          
       - name: Force file differences check
         id: git-check
         run: |
-          # Always force commit for Excel files since they may have binary changes
           touch data/.files_changed_$(date +%s)
           echo "changes=true" >> $GITHUB_OUTPUT
           echo "Files have been updated - forcing commit at $(date)"
