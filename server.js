@@ -2770,6 +2770,82 @@ app.put('/api/todos/:id', authenticateMicrosoftToken, async (req, res) => {
   }
 });
 
+// API endpoint to edit todo fields (separate from status updates)
+app.put('/api/todos/:id/edit', authenticateMicrosoftToken, async (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    const todoId = parseInt(req.params.id);
+    const editData = req.body;
+    
+    console.log(`📝 Editing todo ${todoId} fields for ${userMap[userEmail] || userEmail}:`, editData);
+    
+    // Validation
+    if (!editData.issue || !editData.issue.trim()) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Issue description is required'
+      });
+    }
+    
+    if (!editData.responsibility || !Array.isArray(editData.responsibility) || editData.responsibility.length === 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'At least one team member must be assigned'
+      });
+    }
+    
+    // Check if todo exists
+    const existingTodo = await Todo.findByPk(todoId);
+    if (!existingTodo) {
+      return res.status(404).json({
+        error: 'Todo not found',
+        message: `Todo with ID ${todoId} does not exist`
+      });
+    }
+    
+    // Update the todo fields
+    await Todo.update(
+      { 
+        issue: editData.issue.trim(),
+        responsibility: editData.responsibility.join(','),
+        priority: editData.priority,
+        category: editData.category,
+        dueDate: editData.dueDate ? new Date(editData.dueDate) : null
+      },
+      { 
+        where: { id: todoId },
+        returning: true
+      }
+    );
+    
+    console.log(`✅ Todo ${todoId} fields updated successfully`);
+    
+    // Create Excel backup asynchronously
+    setTimeout(async () => {
+      try {
+        await createExcelBackupFromDatabase();
+        console.log('✅ Excel backup updated after todo edit');
+      } catch (error) {
+        console.error('❌ Excel backup failed:', error);
+      }
+    }, 1000);
+    
+    res.json({
+      success: true,
+      message: 'Todo updated successfully',
+      todoId: todoId,
+      updatedBy: userEmail
+    });
+    
+  } catch (error) {
+    console.error('❌ Error editing todo:', error);
+    res.status(500).json({
+      error: 'Failed to edit todo',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
 
 // API endpoint to delete todo - WITH AUTHENTICATION
 app.delete('/api/todos/:id', authenticateMicrosoftToken, (req, res) => {
