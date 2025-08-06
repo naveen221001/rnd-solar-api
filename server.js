@@ -5,7 +5,7 @@
 const userMap = {
   "naveen.chamaria@vikramsolar.com": "Naveen Kumar Chamaria",
   "aritra.de@vikramsolar.com": "Aritra De",
-  "arindam.halder@vikramsolar.com": "Arindam Halder",
+  "bidisha.saha@vikramsolar.com": "Bidisha Saha",
   "arup.mahapatra@vikramsolar.com": "Arup Mahapatra",
   "tannu@vikramsolar.com": "Tannu",
   "tanushree.roy@vikramsolar.com": "Tanushree Roy",
@@ -24,7 +24,7 @@ const userMap = {
 const AUTHORIZED_EMAILS = [
   "naveen.chamaria@vikramsolar.com",
   "aritra.de@vikramsolar.com",
-  "arindam.halder@vikramsolar.com",
+  "bidisha.saha@vikramsolar.com",
   "arup.mahapatra@vikramsolar.com",
   "tannu@vikramsolar.com",
   "tanushree.roy@vikramsolar.com",
