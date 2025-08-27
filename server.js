@@ -3287,6 +3287,343 @@ app.get('/api/todos/export', authenticateMicrosoftToken, (req, res) => {
     });
   }
 });
+
+// Add these sections to your existing server.js file
+
+// API endpoint for daily updates data - WITH AUTHENTICATION
+app.get('/api/daily-updates', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/daily-updates from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Add request info to response for debugging
+    const requestInfo = {
+      timestamp: new Date().toISOString(),
+      user: userEmail,
+      query: req.query,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'cache-control': req.headers['cache-control']
+      }
+    };
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Daily_Updates.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Daily Updates Excel file not found',
+        message: 'The Daily Updates file has not been synced yet from OneDrive. Please wait for the GitHub Action to run.',
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Read the Excel file with force reload
+    const excelFilePath = fileInfo.path;
+    
+    // Use try/catch specifically for file reading
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Daily Updates Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Daily Updates Excel file',
+        details: readError.message,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Log available sheets
+    console.log('Available sheets in Daily Updates workbook:', workbook.SheetNames);
+    
+    // Read the "Daily Updates" sheet
+    const dailyUpdatesSheetName = 'Daily Updates';
+    const worksheet = workbook.Sheets[dailyUpdatesSheetName];
+    if (!worksheet) {
+      console.error(`Sheet "${dailyUpdatesSheetName}" not found. Available sheets:`, workbook.SheetNames);
+      return res.status(404).json({ 
+        error: `${dailyUpdatesSheetName} sheet not found in Excel file`,
+        availableSheets: workbook.SheetNames,
+        fileInfo,
+        requestInfo
+      });
+    }
+    
+    // Convert to JSON
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    console.log(`Processed ${rawData.length} rows from ${dailyUpdatesSheetName} sheet`);
+    
+    // Process the data to match the frontend's expected format
+    const processedData = rawData.map((row, index) => {
+      const date = parseExcelDate(row['DATE']);
+      
+      return {
+        id: row['ID'] || index + 1,
+        date: date ? date.toISOString().split('T')[0] : null,
+        section: row['SECTION'] || '',
+        update: row['UPDATE'] || '',
+        priority: row['PRIORITY'] || 'Medium',
+        status: row['STATUS'] || 'Pending',
+        assignedTo: row['ASSIGNED_TO'] || '',
+        createdBy: row['CREATED_BY'] || '',
+        createdDate: parseExcelDate(row['CREATED_DATE']) || date
+      };
+    }).filter(item => item.section && item.update); // Filter out empty rows
+    
+    // Sort by date (newest first) and then by ID
+    const sortedData = processedData.sort((a, b) => {
+      const dateComparison = new Date(b.date) - new Date(a.date);
+      if (dateComparison !== 0) return dateComparison;
+      return b.id - a.id;
+    });
+    
+    console.log(`Returning ${sortedData.length} processed daily updates`);
+    res.json(sortedData);
+    
+  } catch (error) {
+    console.error('Error processing daily updates request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process daily updates request', 
+      details: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
+// API endpoint to add new daily update - WITH AUTHENTICATION
+app.post('/api/daily-updates', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    const updateData = req.body;
+    
+    console.log(`API request to add daily update from ${userMap[userEmail] || userEmail}:`, updateData);
+    
+    // Validation
+    if (!updateData.section || !updateData.update) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Section and update description are required'
+      });
+    }
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Daily_Updates.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Daily Updates Excel file not found',
+        message: 'Cannot add update - Excel file is not available'
+      });
+    }
+    
+    // Read the existing Excel file
+    const excelFilePath = fileInfo.path;
+    let workbook;
+    
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Excel file for daily update:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Get the Daily Updates sheet
+    const dailyUpdatesSheet = workbook.Sheets['Daily Updates'];
+    if (!dailyUpdatesSheet) {
+      return res.status(404).json({
+        error: 'Daily Updates sheet not found in Excel file'
+      });
+    }
+    
+    // Read existing data
+    let existingData = [];
+    try {
+      existingData = xlsx.utils.sheet_to_json(dailyUpdatesSheet);
+    } catch (e) {
+      console.warn('Could not read existing data, starting with empty array');
+    }
+    
+    // Find the next ID
+    const maxId = existingData.length > 0 ? 
+      Math.max(...existingData.map(row => parseInt(row['ID']) || 0)) : 0;
+    const nextId = maxId + 1;
+    
+    // Create new update record
+    const newUpdate = {
+      'ID': nextId,
+      'DATE': new Date(updateData.date || new Date().toISOString().split('T')[0]),
+      'SECTION': updateData.section,
+      'UPDATE': updateData.update,
+      'PRIORITY': updateData.priority || 'Medium',
+      'STATUS': updateData.status || 'In Progress',
+      'ASSIGNED_TO': updateData.assignedTo || '',
+      'CREATED_BY': userEmail,
+      'CREATED_DATE': new Date()
+    };
+    
+    // Add new update to existing data
+    existingData.push(newUpdate);
+    
+    // Update the sheet
+    const newSheet = xlsx.utils.json_to_sheet(existingData);
+    workbook.Sheets['Daily Updates'] = newSheet;
+    
+    // Write back to file
+    try {
+      xlsx.writeFile(workbook, excelFilePath);
+      console.log('Successfully added daily update to Excel file');
+    } catch (writeError) {
+      console.error('Error writing daily update to Excel file:', writeError);
+      return res.status(500).json({
+        error: 'Failed to save daily update to Excel file',
+        details: writeError.message
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Daily update added successfully',
+      update: newUpdate
+    });
+    
+  } catch (error) {
+    console.error('Error adding daily update:', error);
+    res.status(500).json({ 
+      error: 'Failed to add daily update', 
+      details: error.message
+    });
+  }
+});
+
+// API endpoint for daily updates statistics - WITH AUTHENTICATION
+app.get('/api/daily-updates/stats', authenticateMicrosoftToken, (req, res) => {
+  try {
+    const userEmail = req.user.preferred_username || req.user.upn || req.user.email;
+    console.log(`API request received for /api/daily-updates/stats from ${userMap[userEmail] || userEmail} at ${new Date().toISOString()}`);
+    
+    // Check if the Excel file exists
+    const fileInfo = checkExcelFile('Daily_Updates.xlsx');
+    if (!fileInfo.exists) {
+      return res.status(404).json({ 
+        error: 'Daily Updates Excel file not found',
+        message: 'The Daily Updates file has not been synced yet from OneDrive.'
+      });
+    }
+    
+    // Read the Excel file
+    const excelFilePath = fileInfo.path;
+    
+    let workbook;
+    try {
+      workbook = xlsx.readFile(excelFilePath, {
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd',
+        cellNF: true,
+        cellStyles: true,
+        type: 'binary',
+        cache: false
+      });
+    } catch (readError) {
+      console.error('Error reading Daily Updates Excel file:', readError);
+      return res.status(500).json({
+        error: 'Failed to read Daily Updates Excel file',
+        details: readError.message
+      });
+    }
+    
+    // Read Daily Updates sheet
+    const dailyUpdatesSheet = workbook.Sheets['Daily Updates'];
+    if (!dailyUpdatesSheet) {
+      return res.status(404).json({ 
+        error: 'Daily Updates sheet not found in Excel file'
+      });
+    }
+    
+    const rawData = xlsx.utils.sheet_to_json(dailyUpdatesSheet);
+    
+    // Calculate statistics
+    const stats = {
+      total: rawData.length,
+      bySection: {},
+      byPriority: {},
+      byStatus: {},
+      todayUpdates: 0,
+      thisWeekUpdates: 0,
+      thisMonthUpdates: 0,
+      completedThisWeek: 0
+    };
+    
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const oneWeekAgo = new Date(today.getTime() - (7 * 24 * 60 * 60 * 1000));
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    rawData.forEach(update => {
+      const section = update['SECTION'] || 'Other';
+      const priority = update['PRIORITY'] || 'Medium';
+      const status = update['STATUS'] || 'Pending';
+      const updateDate = parseExcelDate(update['DATE']);
+      
+      // Count by section
+      stats.bySection[section] = (stats.bySection[section] || 0) + 1;
+      
+      // Count by priority
+      stats.byPriority[priority] = (stats.byPriority[priority] || 0) + 1;
+      
+      // Count by status
+      stats.byStatus[status] = (stats.byStatus[status] || 0) + 1;
+      
+      // Time-based counts
+      if (updateDate) {
+        const updateDateStr = updateDate.toISOString().split('T')[0];
+        
+        if (updateDateStr === todayStr) {
+          stats.todayUpdates++;
+        }
+        
+        if (updateDate >= oneWeekAgo) {
+          stats.thisWeekUpdates++;
+          
+          if (status === 'Completed') {
+            stats.completedThisWeek++;
+          }
+        }
+        
+        if (updateDate >= startOfMonth) {
+          stats.thisMonthUpdates++;
+        }
+      }
+    });
+    
+    console.log(`Returning statistics for ${stats.total} daily updates`);
+    res.json(stats);
+    
+  } catch (error) {
+    console.error('Error processing daily updates stats request:', error);
+    res.status(500).json({ 
+      error: 'Failed to process daily updates stats request', 
+      details: error.message
+    });
+  }
+});
 // Separate API endpoint for detailed shrinkage test analysis - WITH AUTHENTICATION
 app.get('/api/shrinkage-tests', authenticateMicrosoftToken, (req, res) => {
   try {
@@ -4245,6 +4582,7 @@ app.get('/api/data-status', authenticateMicrosoftToken, (req, res) => {
     const certificationsInfo = checkExcelFile('Certifications.xlsx');
     const chamberTestsInfo = checkExcelFile('Chamber_Tests.xlsx');
     const rndTodosInfo = checkExcelFile('RND_Todos.xlsx');
+    const dailyUpdatesInfo = checkExcelFile('Daily_Updates.xlsx'); // ADD THIS LINE
     
     if (!solarLabInfo.exists && !lineTrialsInfo.exists && !certificationsInfo.exists) {
       return res.status(404).json({
@@ -4357,6 +4695,25 @@ app.get('/api/data-status', authenticateMicrosoftToken, (req, res) => {
         };
       }
     }
+
+    // ADD THIS SECTION - Process Daily Updates file
+if (dailyUpdatesInfo.exists) {
+  try {
+    const workbook = xlsx.readFile(dailyUpdatesInfo.path, { 
+      bookSheets: true,
+      cache: false
+    });
+    fileDetails.dailyUpdates = {
+      lastUpdated: dailyUpdatesInfo.lastModified,
+      fileSize: dailyUpdatesInfo.size,
+      sheets: workbook.SheetNames || []
+    };
+  } catch (e) {
+    fileDetails.dailyUpdates = {
+      error: `Error reading sheet names: ${e.message}`
+    };
+  }
+}
 
 
     res.json({
@@ -4527,6 +4884,8 @@ app.get('/health', (req, res) => {
   const chamberTestsInfo = checkExcelFile('Chamber_Tests.xlsx');
   const rndTodosInfo = checkExcelFile('RND_Todos.xlsx'); // ADD THIS LINE
   
+  
+  
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
@@ -4537,7 +4896,8 @@ app.get('/health', (req, res) => {
       lineTrials: lineTrialsInfo,
       certifications: certificationsInfo,
       chamberTests: chamberTestsInfo,
-      rndTodos: rndTodosInfo // ADD THIS LINE
+      rndTodos: rndTodosInfo,
+      dailyUpdates: checkExcelFile('Daily_Updates.xlsx')// ADD THIS LINE
     },
     memory: process.memoryUsage(),
     environment: process.env.NODE_ENV || 'development',
