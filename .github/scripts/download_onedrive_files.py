@@ -251,6 +251,15 @@ def main():
     else:
         print("WARNING: RND_TODOS_URL environment variable not set")
         success = False
+
+    daily_updates_url = os.environ.get("DAILY_UPDATES_URL")
+    if daily_updates_url:
+        print("\n=== Processing Daily Updates file ===")
+        result = download_file(daily_updates_url, "data/Daily_Updates.xlsx")
+        success = result and success
+    else:
+        print("WARNING: DAILY_UPDATES_URL environment variable not set")
+        success = False
     # Always force changes to be recognized
     force_changes()
     
