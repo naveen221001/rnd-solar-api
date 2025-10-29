@@ -18,7 +18,8 @@ const userMap = {
   "deepanjana.adak@vikramsolar.com": "Deepanjana Adak",
   "sumit.kumar@vikramsolar.com": "Sumit Kumar",
   "rnd.lab@vikramsolar.com": "R&D Lab",
-  "aman.srivastava@vikramsolar.com" : "Aman Srivastava"
+  "aman.srivastava@vikramsolar.com" : "Aman Srivastava",
+  "samaresh.banerjee89@gmail.com" : "Samaresh Banerjee"
 };
 
 // Authorized R&D team emails
@@ -39,7 +40,8 @@ const AUTHORIZED_EMAILS = [
   "deepanjana.adak@vikramsolar.com",
   // 2 spaces reserved for future team members
   "sumit.kumar@vikramsolar.com",
-  "rnd.lab@vikramsolar.com"
+  "rnd.lab@vikramsolar.com",
+  "samaresh.banerjee89@gmail.com"
 ];
 
 require('dotenv').config();
