@@ -33,7 +33,7 @@ const AUTHORIZED_EMAILS = [
   "tanushree.roy@vikramsolar.com",
   "soumya.ghosal@vikramsolar.com",
   "krishanu.ghosh@vikramsolar.com",
-  "samaresh.banerjee@vikramsolar.com",
+  "Samaresh.Banerjee@vikramsolar.com",
   "gopal.kumar@vikramsolar.com",
   "jai.jaiswal@vikramsolar.com",
   "shakya.acharya@vikramsolar.com",
